@@ -1,0 +1,126 @@
+﻿{% extends 'base.html' %}
+{% block title %}Manage Students - OneMillionCoders{% endblock %}
+{% block content %}
+<div class="row gy-4">
+    <div class="col-12">
+        <div class="app-card p-4">
+            <div class="d-flex flex-column flex-md-row justify-content-between align-items-start gap-3">
+                <div>
+                    <h1 class="h4 mb-2">Manage Students</h1>
+                    <p class="text-muted mb-0">Only admins can add, remove, and assign students to classes.</p>
+                </div>
+                <span class="badge badge-soft align-self-center">Admin only</span>
+            </div>
+        </div>
+    </div>
+    <div class="col-12">
+        <div class="app-card p-4">
+            <h2 class="h5 mb-3">Add New Student</h2>
+            <form method="POST" class="row g-3">
+                <input type="hidden" name="action" value="add">
+                <div class="col-md-3">
+                    <label class="form-label">Student ID</label>
+                    <input type="text" name="student_id" class="form-control" placeholder="S001" required>
+                </div>
+                <div class="col-md-3">
+                    <label class="form-label">Full name</label>
+                    <input type="text" name="name" class="form-control" placeholder="Alice Wonderland" required>
+                </div>
+                <div class="col-md-3">
+                    <label class="form-label">Password</label>
+                    <input type="password" name="password" class="form-control" placeholder="Set a password" required>
+                </div>
+                <div class="col-md-2">
+                    <label class="form-label">Course code</label>
+                    <input type="text" name="class_code" class="form-control" placeholder="CS101">
+                </div>
+                <div class="col-md-2">
+                    <label class="form-label">Email</label>
+                    <input type="email" name="email" class="form-control" placeholder="student@example.com">
+                </div>
+                <div class="col-md-1 d-grid">
+                    <label class="form-label d-none d-md-block">&nbsp;</label>
+                    <button class="btn app-btn">Add</button>
+                </div>
+            </form>
+        </div>
+    </div>
+    <div class="col-12">
+        <div class="app-card p-4 mb-4">
+            <h2 class="h5 mb-3">Pending Registrations</h2>
+            {% if pending_students %}
+            <div class="table-responsive">
+                <table class="table table-borderless text-white align-middle mb-0">
+                    <thead>
+                        <tr class="text-muted small text-uppercase"><th>ID</th><th>Name</th><th>Course</th><th>Email</th><th>Actions</th></tr>
+                    </thead>
+                    <tbody>
+                        {% for s in pending_students %}
+                        <tr style="border-bottom:1px solid rgba(255,255,255,.08);">
+                            <td>{{ s.student_id }}</td>
+                            <td>{{ s.name }}</td>
+                            <td>{{ s.class_code }}</td>
+                            <td>{{ s.email or '—' }}</td>
+                            <td>
+                                <form method="POST" class="d-inline me-2">
+                                    <input type="hidden" name="action" value="approve">
+                                    <input type="hidden" name="student_id" value="{{ s.student_id }}">
+                                    <button class="btn btn-sm btn-outline-success">Approve</button>
+                                </form>
+                                <form method="POST" class="d-inline">
+                                    <input type="hidden" name="action" value="delete">
+                                    <input type="hidden" name="student_id" value="{{ s.student_id }}">
+                                    <button class="btn btn-sm btn-outline-danger">Reject</button>
+                                </form>
+                            </td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+            {% else %}
+            <div class="text-muted">No pending student registrations.</div>
+            {% endif %}
+        </div>
+    </div>
+    <div class="col-12">
+        <div class="app-card p-4">
+            <h2 class="h5 mb-3">Registered Students</h2>
+            <div class="table-responsive">
+                <table class="table table-borderless text-white align-middle mb-0">
+                    <thead>
+                        <tr class="text-muted small text-uppercase"><th>ID</th><th>Name</th><th>Course</th><th>Email</th><th>Status</th><th>Actions</th></tr>
+                    </thead>
+                    <tbody>
+                        {% for s in students %}
+                        <tr style="border-bottom:1px solid rgba(255,255,255,.08);">
+                            <td>{{ s.student_id }}</td>
+                            <td>{{ s.name }}</td>
+                            <td>{{ s.class_code }}</td>
+                            <td>{{ s.email or '—' }}</td>
+                            <td>
+                                <span class="badge rounded-pill" style="background: rgba(34,211,238,.12); color: #22d3ee;">{{ s.status|capitalize }}</span>
+                            </td>
+                            <td>
+                                <a href="/admin/students/edit?student_id={{ s.student_id }}" class="btn btn-sm btn-outline-secondary me-2">Edit</a>
+                                <form method="POST" class="d-inline">
+                                    <input type="hidden" name="action" value="delete">
+                                    <input type="hidden" name="student_id" value="{{ s.student_id }}">
+                                    <button class="btn btn-sm btn-outline-danger">Delete</button>
+                                </form>
+                            </td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+                {% if not students %}
+                <div class="text-muted mt-3">No students have been added yet.</div>
+                {% endif %}
+            </div>
+            <div class="mt-4 text-end">
+                <a href="/admin" class="text-info small">Back to Admin Dashboard</a>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}

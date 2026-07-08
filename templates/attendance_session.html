@@ -1,0 +1,76 @@
+{% extends 'base.html' %}
+{% block title %}Attendance Session{% endblock %}
+{% block content %}
+<div class="row justify-content-center">
+    <div class="col-xl-6 col-lg-8">
+        <div class="app-card p-4">
+            <h2 class="h4 mb-3">Attendance Session</h2>
+            {% with messages = get_flashed_messages(with_categories=true) %}
+                {% for cat, msg in messages %}
+                    <div class="alert alert-{{ 'danger' if cat=='error' else 'success' }}">{{ msg }}</div>
+                {% endfor %}
+            {% endwith %}
+            <p class="text-muted">Create a session token for students to scan or paste when marking attendance.</p>
+            <div class="row g-3 mb-4">
+                <div class="col-sm-6">
+                    <div class="border rounded-3 p-3" style="background: rgba(255,255,255,.04);">
+                        <div class="small text-muted">Course</div>
+                        <strong>{{ course_code }}</strong>
+                    </div>
+                </div>
+                <div class="col-sm-6">
+                    <div class="border rounded-3 p-3" style="background: rgba(255,255,255,.04);">
+                        <div class="small text-muted">Date</div>
+                        <strong>{{ selected_date }}</strong>
+                    </div>
+                </div>
+            </div>
+            {% if token %}
+            <div class="mb-4">
+                <div class="alert alert-info">Active token: <strong>{{ token }}</strong></div>
+                {% if expires_at %}
+                <p class="small text-muted mb-2">Expires at: {{ expires_at.replace('T', ' ')[:16] }}</p>
+                {% endif %}
+                <div id="qrcode" class="d-flex justify-content-center mb-3"></div>
+                {% set qr_text = student_login_url if student_login_url else (host_url ~ '/attendance/checkin?token=' ~ token) %}
+                <input type="text" readonly class="form-control" value="{{ qr_text }}">
+                <div class="mt-3">
+                    <form method="GET" action="{{ url_for('magic_qr') }}" target="_blank" class="row g-2 align-items-center">
+                        <div class="col-auto">
+                            <input type="text" name="student_id" class="form-control" placeholder="Student ID" required>
+                        </div>
+                        <input type="hidden" name="session_token" value="{{ token }}">
+                        <div class="col-auto">
+                            <button class="btn btn-outline-primary" type="submit">Open magic QR</button>
+                        </div>
+                    </form>
+                    <p class="small text-muted mt-2">Open this link to display a passwordless QR for the selected student.</p>
+                </div>
+                {% if host_url != request.host_url.rstrip('/') %}
+                <p class="small text-warning mt-2">Use this network URL on student phones instead of localhost.</p>
+                {% endif %}
+            </div>
+            {% else %}
+            <form method="POST" class="mb-4">
+                <input type="hidden" name="course_code" value="{{ course_code }}">
+                <input type="hidden" name="date" value="{{ selected_date }}">
+                <button class="btn app-btn w-100">Create Attendance Token</button>
+            </form>
+            {% endif %}
+            <div class="text-end">
+                <a href="/manage_attendance?course={{ course_code }}&date={{ selected_date }}" class="text-info small">Back to attendance management</a>
+            </div>
+        </div>
+    </div>
+</div>
+{% if token %}
+<script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
+<script>
+    new QRCode(document.getElementById('qrcode'), {
+        text: '{{ qr_text }}',
+        width: 220,
+        height: 220
+    });
+</script>
+{% endif %}
+{% endblock %}

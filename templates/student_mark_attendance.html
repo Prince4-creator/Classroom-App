@@ -1,0 +1,124 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Mark Attendance</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.2.3/dist/css/bootstrap.min.css" rel="stylesheet">
+    <style>
+        body { background: #000; color: #0ff; }
+        .location-badge { display: inline-block; padding: 0.25rem 0.5rem; background: #0d172c; border: 1px solid #7c3aed; border-radius: 0.25rem; font-size: 0.85rem; }
+    </style>
+</head>
+<body>
+    <nav class="navbar navbar-dark bg-black">
+        <div class="container">
+            <a class="navbar-brand d-flex align-items-center" href="/student/dashboard">
+                <span class="brand-logo">
+                    <svg viewBox="0 0 100 100" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="OneMillionCoders logo">
+                        <circle cx="50" cy="50" r="46" fill="#0d172c" stroke="#7c3aed" stroke-width="6"/>
+                        <path d="M32 40 C20 55, 20 75, 40 80" fill="none" stroke="#22d3ee" stroke-width="8" stroke-linecap="round"/>
+                        <path d="M50 22 L58 38 L46 36 L42 48" fill="none" stroke="#f59e0b" stroke-width="8" stroke-linecap="round"/>
+                        <path d="M68 38 C80 55, 80 75, 60 80" fill="none" stroke="#ec4899" stroke-width="8" stroke-linecap="round"/>
+                    </svg>
+                </span>
+                Mark Attendance
+            </a>
+            <a href="/logout" class="btn btn-outline-danger">Logout</a>
+        </div>
+    </nav>
+
+    <div class="container mt-5">
+        <div class="card bg-dark rounded-4 shadow-lg border-secondary border-1">
+            <div class="card-header bg-black text-white border-bottom border-secondary">Mark Your Attendance</div>
+            <div class="card-body">
+                <form method="POST" id="attendanceForm">
+                    <input type="hidden" name="latitude" id="latitude">
+                    <input type="hidden" name="longitude" id="longitude">
+                    {% if token %}
+                    <input type="hidden" name="token" value="{{ token }}">
+                    {% endif %}
+                    
+                    <div class="mb-3">
+                        {% if student %}
+                        <p class="text-muted small mb-2">Your Class: <strong>{{ student.class_code or 'No class assigned' }}</strong></p>
+                        {% else %}
+                        <p class="text-muted small mb-2">Your Class: <strong>No class assigned</strong></p>
+                        {% endif %}
+                    </div>
+
+                    <select name="course_code" class="form-control mb-3" {% if session_info %}disabled{% endif %} required>
+                        <option value="">Select Course</option>
+                        {% for c in courses %}
+                        <option value="{{ c.code }}" {% if session_info and c.code==session_info.course_code %}selected{% endif %}>{{ c.code }} - {{ c.name }}</option>
+                        {% endfor %}
+                    </select>
+                    {% if session_info %}
+                    <input type="hidden" name="course_code" value="{{ session_info.course_code }}">
+                    {% endif %}
+
+                    <div id="locationStatus" class="alert alert-info small mb-3" style="display:none;">
+                        <span id="statusText">📍 Requesting location...</span>
+                    </div>
+
+                    <button type="button" id="markBtn" class="btn btn-info w-100">Mark Present</button>
+                    <p class="small text-muted mt-3 mb-0">📍 Click "Mark Present" to capture your location automatically.</p>
+                </form>
+
+                <div class="mt-3">
+                    <a href="/student/dashboard" class="text-info">Back to Dashboard</a>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+    document.getElementById('markBtn').addEventListener('click', function(e) {
+        e.preventDefault();
+        const courseCode = document.querySelector('[name="course_code"]').value;
+        if (!courseCode) {
+            alert('Please select a course first');
+            return;
+        }
+
+        const statusDiv = document.getElementById('locationStatus');
+        const statusText = document.getElementById('statusText');
+        
+        statusDiv.style.display = 'block';
+        statusText.textContent = '📍 Requesting location permission...';
+
+        if (navigator.geolocation) {
+            navigator.geolocation.getCurrentPosition(
+                function(position) {
+                    const lat = position.coords.latitude;
+                    const lon = position.coords.longitude;
+                    document.getElementById('latitude').value = lat;
+                    document.getElementById('longitude').value = lon;
+                    statusText.innerHTML = '✅ Location captured: <span class="location-badge">' + lat.toFixed(4) + ', ' + lon.toFixed(4) + '</span>';
+                    setTimeout(() => { document.getElementById('attendanceForm').submit(); }, 1000);
+                },
+                function(error) {
+                    let errorMsg = 'Could not get location';
+                    if (error.code === 1) {
+                        errorMsg = '❌ You denied location access';
+                    } else if (error.code === 2) {
+                        errorMsg = '⚠️ Location unavailable';
+                    } else if (error.code === 3) {
+                        errorMsg = '⏱️ Location request timed out';
+                    }
+                    statusText.innerHTML = errorMsg + ' - Submitting anyway...';
+                    statusDiv.className = 'alert alert-warning small mb-3';
+                    setTimeout(() => { document.getElementById('attendanceForm').submit(); }, 1500);
+                },
+                {
+                    timeout: 10000,
+                    enableHighAccuracy: true
+                }
+            );
+        } else {
+            statusText.textContent = '⚠️ Geolocation not available in your browser';
+            statusDiv.className = 'alert alert-warning small mb-3';
+            setTimeout(() => { document.getElementById('attendanceForm').submit(); }, 1500);
+        }
+    });
+    </script>
+</body>
+</html>

@@ -1,0 +1,40 @@
+{% extends 'base.html' %}
+{% block title %}Edit Student - OneMillionCoders{% endblock %}
+{% block content %}
+<div class="row justify-content-center">
+    <div class="col-lg-6">
+        <div class="app-card p-4">
+            <div class="d-flex justify-content-between align-items-start mb-4">
+                <div>
+                    <h1 class="h4 mb-2">Edit Student</h1>
+                    <p class="text-muted mb-0">Update the email, name, or course for this student.</p>
+                </div>
+                <span class="badge badge-soft align-self-center">Admin only</span>
+            </div>
+            <form method="POST" class="row g-3">
+                <input type="hidden" name="student_id" value="{{ student_id }}">
+                <div class="col-12">
+                    <label class="form-label">Student ID</label>
+                    <input type="text" class="form-control" value="{{ student_id }}" readonly>
+                </div>
+                <div class="col-12">
+                    <label class="form-label">Full Name</label>
+                    <input type="text" name="name" class="form-control" value="{{ student.name }}" required>
+                </div>
+                <div class="col-12">
+                    <label class="form-label">Course Code</label>
+                    <input type="text" name="class_code" class="form-control" value="{{ student.class_code }}">
+                </div>
+                <div class="col-12">
+                    <label class="form-label">Email</label>
+                    <input type="email" name="email" class="form-control" value="{{ student.email }}" placeholder="student@example.com">
+                </div>
+                <div class="col-12 d-flex justify-content-between">
+                    <a href="/admin/students" class="btn btn-outline-secondary">Cancel</a>
+                    <button type="submit" class="btn app-btn">Save Changes</button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+{% endblock %}

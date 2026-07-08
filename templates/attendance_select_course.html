@@ -1,0 +1,31 @@
+{% extends 'base.html' %}
+{% block title %}Select Course - Attendance{% endblock %}
+{% block content %}
+<div class="row justify-content-center">
+    <div class="col-md-6">
+        <div class="app-card p-4">
+            <h2 class="h4 mb-2 text-center">Select Your Course</h2>
+            <p class="text-center text-muted mb-4">Choose your course to mark attendance</p>
+            
+            {% if courses %}
+                <div class="d-grid gap-2">
+                    {% for c in courses %}
+                    <a href="/student/mark_attendance?course={{ c.code }}" class="btn btn-outline-light text-start">
+                        <strong>{{ c.code }}</strong>
+                        <br>
+                        <small class="text-muted">{{ c.name }}</small>
+                    </a>
+                    {% endfor %}
+                </div>
+            {% else %}
+                <div class="alert alert-warning">No courses available yet.</div>
+            {% endif %}
+            
+            <div class="text-center mt-4">
+                <p class="small text-muted mb-0">You can also log in directly to select your course</p>
+                <a href="/student/login" class="btn btn-sm btn-outline-info mt-2">Go to Login</a>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}

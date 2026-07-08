@@ -1,0 +1,68 @@
+﻿{% extends 'base.html' %}
+{% block title %}Dashboard - OneMillionCoders Classroom Hub{% endblock %}
+{% block content %}
+<div class="row gy-4">
+    <div class="col-12">
+        <div class="app-card p-4">
+            <div class="d-flex flex-column flex-md-row justify-content-between align-items-start gap-3">
+                <div>
+                    <h1 class="h3 mb-2">Welcome back, {{ session.user|capitalize }}</h1>
+                    <p class="text-muted mb-0">Manage attendance, polls, and announcements in one place.</p>
+                </div>
+                <div class="d-flex flex-wrap gap-2">
+                    <span class="badge badge-soft px-3 py-2">{{ courses|length }} Courses</span>
+                    <span class="badge badge-soft px-3 py-2">{{ announcements|length }} Announcements</span>
+                </div>
+            </div>
+        </div>
+    </div>
+    <div class="col-lg-4">
+        <div class="app-card p-4">
+            <h2 class="h5 mb-3">Quick actions</h2>
+            <div class="d-grid gap-2">
+                <a href="/attendance" class="btn app-btn">Mark Attendance</a>
+                <a href="/manage_attendance" class="btn app-btn">Manage Attendance</a>
+                <a href="/poll" class="btn app-btn">Live Polls</a>
+                {% if session.role == 'admin' %}
+                <a href="/admin" class="btn app-btn">Admin Panel</a>
+                {% endif %}
+            </div>
+        </div>
+        <div class="app-card p-4 mt-4">
+            <h2 class="h5 mb-3">Active courses</h2>
+            <ul class="list-group list-group-flush">
+                {% for c in courses %}
+                <li class="list-group-item d-flex justify-content-between align-items-center">
+                    <span>{{ c.code }}</span>
+                    <a href="/manage_attendance?course={{ c.code }}" class="small text-info">Manage</a>
+                </li>
+                {% endfor %}
+            </ul>
+        </div>
+    </div>
+    <div class="col-lg-8">
+        <div class="app-card p-4">
+            <div class="d-flex justify-content-between align-items-center mb-3">
+                <h2 class="h5 mb-0">Latest announcements</h2>
+                <span class="badge badge-soft">{{ announcements|length }}</span>
+            </div>
+            {% if announcements %}
+                {% for a in announcements %}
+                <div class="mb-3 p-3 rounded-3 {% if a.announcement_type == 'assignment' %}assignment-card{% elif a.announcement_type == 'exercise' %}exercise-card{% else %}announcement-card{% endif %}" style="background: rgba(255,255,255,.03); border: 1px solid rgba(255,255,255,.08);">
+                    <div class="d-flex justify-content-between align-items-start mb-2">
+                        <div>
+                            <h3 class="h6 mb-1">[{{ a.announcement_type|capitalize }}] {{ a.title }}</h3>
+                            <span class="badge {% if a.announcement_type == 'assignment' %}badge-assignment{% elif a.announcement_type == 'exercise' %}badge-exercise{% else %}badge-announcement{% endif %}"> {{ a.announcement_type|capitalize }} </span>
+                            <p class="small text-muted mb-0">{{ a.created_at[:10] }} • {{ a.author }}</p>
+                        </div>
+                    </div>
+                    <p class="mb-0">{{ a.content }}</p>
+                </div>
+                {% endfor %}
+            {% else %}
+                <p class="text-muted">No announcements yet. Admins can add announcements from the dashboard.</p>
+            {% endif %}
+        </div>
+    </div>
+</div>
+{% endblock %}

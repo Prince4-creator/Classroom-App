@@ -1,0 +1,109 @@
+﻿{% extends 'base.html' %}
+{% block title %}Post Announcement - OneMillionCoders{% endblock %}
+{% block content %}
+<div class="row gy-4">
+    {% with messages = get_flashed_messages(with_categories=true) %}
+      {% for category, message in messages %}
+        <div class="alert alert-{{ 'success' if category == 'success' else 'warning' }}">
+          {{ message }}
+        </div>
+      {% endfor %}
+    {% endwith %}
+
+    <div class="col-12">
+        <div class="app-card p-4">
+            <div class="d-flex flex-column flex-md-row justify-content-between align-items-start gap-3">
+                <div>
+                    <h1 class="h4 mb-2">Post Announcement</h1>
+                    <p class="text-muted mb-0">Share updates with students by course or campus-wide.</p>
+                </div>
+                <span class="badge badge-soft align-self-center">Admin only</span>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-6">
+        <div class="app-card p-4">
+            <h2 class="h5 mb-3">New Announcement</h2>
+            <form method="POST" enctype="multipart/form-data" class="row g-3">
+                <div class="col-12">
+                    <label class="form-label">Title</label>
+                    <input type="text" name="title" class="form-control" placeholder="Announcement title" required>
+                </div>
+                <div class="col-12">
+                    <label class="form-label">Message</label>
+                    <textarea name="content" class="form-control" rows="4" placeholder="Announcement details" required></textarea>
+                </div>
+                <div class="col-md-6">
+                    <label class="form-label">Type</label>
+                    <select name="announcement_type" class="form-select">
+                        <option value="announcement">Announcement</option>
+                        <option value="assignment">Assignment</option>
+                        <option value="exercise">Exercise</option>
+                    </select>
+                </div>
+                <div class="col-md-6">
+                    <label class="form-label">Course (optional)</label>
+                    <select name="course_code" class="form-select">
+                        <option value="">All Courses</option>
+                        {% for c in courses %}
+                        <option value="{{ c.code }}">{{ c.code }} - {{ c.name }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+                <div class="col-12">
+                    <label class="form-label">Add Attachments</label>
+                    <input type="file" name="attachments" class="form-control" multiple accept=".pdf,.doc,.docx,.xlsx,.xls,.ppt,.pptx,.txt,.jpg,.jpeg,.png,.gif,.zip">
+                </div>
+                <div class="col-12">
+                    <div class="form-check">
+                        <input class="form-check-input" type="checkbox" name="send_email" id="send_email">
+                        <label class="form-check-label" for="send_email">Send email to registered students</label>
+                    </div>
+                </div>
+                <div class="col-12 d-grid">
+                    <button class="btn app-btn">Post Announcement</button>
+                </div>
+            </form>
+        </div>
+    </div>
+    <div class="col-md-6">
+        <div class="app-card p-4 h-100">
+            <h2 class="h5 mb-3">Existing Announcements</h2>
+            {% if announcements %}
+                <div class="list-group">
+                    {% for a in announcements %}
+                    <div class="list-group-item mb-3 {% if a.announcement_type == 'assignment' %}assignment-card{% elif a.announcement_type == 'exercise' %}exercise-card{% else %}announcement-card{% endif %}" style="background: rgba(255,255,255,.04); border: 1px solid rgba(255,255,255,.08);">
+                        <div class="d-flex justify-content-between align-items-start mb-2">
+                            <div>
+                                <h3 class="h6 mb-1"><span class="badge {% if a.announcement_type == 'assignment' %}badge-assignment{% elif a.announcement_type == 'exercise' %}badge-exercise{% else %}badge-announcement{% endif %}"> {{ a.announcement_type|capitalize }} </span> {{ a.title }}</h3>
+                                <p class="small text-muted mb-0">{{ a.created_at[:10] }} • {{ a.author }}{% if a.course_code %} • {{ a.course_code }}{% else %} • All Courses{% endif %}</p>
+                            </div>
+                            <form method="POST" action="/admin/announcements/delete" class="ms-3">
+                                <input type="hidden" name="announcement_id" value="{{ a.id }}">
+                                <button type="submit" class="btn btn-sm btn-outline-danger">Delete</button>
+                            </form>
+                        </div>
+                        <p class="mb-0">{{ a.content }}</p>
+                        {% if a.attachments %}
+                        <div class="mt-2">
+                            <strong>Attachments:</strong>
+                            <ul class="mb-0 ps-3">
+                                {% for file in a.attachments %}
+                                <li><a href="{{ url_for('download_upload', filename=file) }}" class="link-info" target="_blank">{{ file }}</a></li>
+                                {% endfor %}
+                            </ul>
+                        </div>
+                        {% endif %}
+                    </div>
+                    {% endfor %}
+                </div>
+            {% else %}
+                <p class="text-muted">No announcements posted yet.</p>
+            {% endif %}
+        </div>
+    </div>
+    <div class="col-12 text-end">
+        <a href="/admin" class="text-info small">Back to Admin Dashboard</a>
+    </div>
+</div>
+{% endblock %}

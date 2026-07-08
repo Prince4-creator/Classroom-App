@@ -1,0 +1,115 @@
+﻿{% extends 'base.html' %}
+{% block title %}Manage Attendance -  OneMillionCoders Classroom Hub{% endblock %}
+{% block content %}
+<div class="row gy-4">
+    <div class="col-12">
+        <div class="app-card p-4">
+            <div class="d-flex flex-column flex-md-row justify-content-between align-items-start gap-3">
+                <div>
+                    <h1 class="h4 mb-2">Attendance Control</h1>
+                    <p class="text-muted mb-0">View attendance records, update status, and generate check-in tokens.</p>
+                </div>
+                <a href="/attendance/session?course={{ course_code }}&date={{ selected_date }}" class="btn app-btn">Generate QR / Token</a>
+            </div>
+        </div>
+    </div>
+    <div class="col-lg-4">
+        <div class="app-card p-4">
+            <form method="GET" class="row g-3">
+                <div class="col-12">
+                    <label class="form-label">Course</label>
+                    <select name="course" class="form-select" onchange="this.form.submit()">
+                        {% for c in courses %}
+                        <option value="{{ c.code }}" {% if c.code==course_code %}selected{% endif %}>{{ c.code }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+                <div class="col-12">
+                    <label class="form-label">Date</label>
+                    <input type="date" name="date" value="{{ selected_date }}" class="form-control" onchange="this.form.submit()">
+                </div>
+            </form>
+        </div>
+        <div class="app-card p-4 mt-4">
+            <h2 class="h6 mb-3">QR / Token Generator</h2>
+            <p class="small text-muted">Generate an attendance session for the selected course so students can scan or open the login link.</p>
+            <a href="/attendance/session?course={{ course_code }}&date={{ selected_date }}" class="btn btn-outline-light w-100">Open QR / Token page</a>
+        </div>
+        <div class="app-card p-4 mt-4">
+            <h2 class="h6 mb-3">General QR (All Courses)</h2>
+            <p class="small text-muted">Generate a QR code that lets any student select their course before marking attendance.</p>
+            <a href="/attendance/general_qr" target="_blank" class="btn btn-info w-100 mb-2">📱 Display General QR</a>
+            <p class="small text-muted mt-2 mb-0">This QR works for all courses and dates.</p>
+        </div>
+        <div class="app-card p-4 mt-4">
+            <h2 class="h6 mb-3">Course QR shortcuts</h2>
+            {% for c in courses %}
+            <a href="/attendance/session?course={{ c.code }}&date={{ selected_date }}" class="btn btn-sm btn-outline-light w-100 mb-2">{{ c.code }} QR / Token</a>
+            {% endfor %}
+        </div>
+        <div class="app-card p-4 mt-4">
+            <h2 class="h6 mb-3">Stats</h2>
+            <p class="mb-2">Total students: <strong>{{ stats.total_students }}</strong></p>
+            <p class="mb-2">Recorded days: <strong>{{ stats.days }}</strong></p>
+            <p class="mb-2">Checked in so far: <strong>{{ records|length }}</strong></p>
+            <p class="mb-0">Total presents: <strong>{{ stats.present }}</strong></p>
+        </div>
+        {% if token %}
+        <div class="app-card p-4 mt-4">
+            <h2 class="h6 mb-3">Active token</h2>
+            <div class="badge badge-soft p-3 text-wrap">{{ token }}</div>
+            {% if expires_at %}
+            <p class="small text-muted mt-2 mb-0">Expires at: {{ expires_at.replace('T',' ')[:16] }}</p>
+            {% endif %}
+        </div>
+        {% endif %}
+    </div>
+    <div class="col-lg-8">
+        <div class="app-card p-4">
+            <div class="d-flex justify-content-between align-items-center mb-3">
+                <h2 class="h5 mb-0">Records for {{ course_code }} on {{ selected_date }}</h2>
+                <a href="/export_attendance?course={{ course_code }}&date={{ selected_date }}" class="btn btn-outline-light btn-sm">Export CSV</a>
+            </div>
+            <div class="table-responsive">
+                <table class="table table-borderless align-middle text-white">
+                    <thead>
+                        <tr class="text-muted small text-uppercase"><th>Student ID</th><th>Name</th><th>Course</th><th>Time</th><th>Location</th><th>Status</th><th>Action</th></tr>
+                    </thead>
+                    <tbody>
+                        {% for rec in records %}
+                        <tr style="border-bottom:1px solid rgba(255,255,255,.08);">
+                            <td>{{ rec.student_id }}</td>
+                            <td>{{ rec.name }}</td>
+                            <td><span class="badge badge-soft">{{ rec.course_code or 'N/A' }}{% if rec.course_name %} - {{ rec.course_name }}{% endif %}</span></td>
+                            <td>{{ rec.time }}</td>
+                            <td>
+                                {% if rec.latitude and rec.longitude %}
+                                <span class="small" title="Lat: {{ rec.latitude }}, Lon: {{ rec.longitude }}">📍 {{ "%.4f"|format(rec.latitude) }}, {{ "%.4f"|format(rec.longitude) }}</span>
+                                {% else %}
+                                <span class="small text-muted">—</span>
+                                {% endif %}
+                            </td>
+                            <td>
+                                <form method="POST" action="/update_attendance_status" class="d-flex gap-2 align-items-center">
+                                    <input type="hidden" name="record_id" value="{{ rec.id }}">
+                                    <input type="hidden" name="course_code" value="{{ course_code }}">
+                                    <input type="hidden" name="date" value="{{ selected_date }}">
+                                    <select name="status" class="form-select form-select-sm" style="min-width: 120px;">
+                                        <option value="present" {% if rec.status=='present' %}selected{% endif %}>Present</option>
+                                        <option value="absent" {% if rec.status=='absent' %}selected{% endif %}>Absent</option>
+                                        <option value="late" {% if rec.status=='late' %}selected{% endif %}>Late</option>
+                                    </select>
+                            </td>
+                            <td><button type="submit" class="btn btn-sm btn-outline-light">Update</button></form></td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+                {% if not records %}
+                    <div class="text-muted">No attendance records found for this date.</div>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
