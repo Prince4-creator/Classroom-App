@@ -4,7 +4,10 @@ from datetime import datetime, timedelta
 import csv
 import io
 import os
-import qrcode
+try:
+    import qrcode
+except Exception:
+    qrcode = None
 import secrets
 import socket
 import smtplib
@@ -14,6 +17,17 @@ from urllib.parse import urlparse, urljoin
 from werkzeug.utils import secure_filename
 import traceback
 import base64
+
+SUPABASE_URL = os.environ.get('SUPABASE_URL', '').strip()
+SUPABASE_KEY = os.environ.get('SUPABASE_KEY', '').strip()
+SUPABASE_BUCKET = os.environ.get('SUPABASE_BUCKET', 'attachments').strip()
+supabase = None
+if SUPABASE_URL and SUPABASE_KEY:
+    try:
+        from supabase import create_client
+        supabase = create_client(SUPABASE_URL, SUPABASE_KEY)
+    except Exception as e:
+        print('Warning: Supabase client init failed:', e)
 
 # Load local .env file if present (KEY=VALUE per line)
 env_path = os.path.join(os.path.dirname(__file__), '.env')
@@ -42,12 +56,40 @@ app.config.update({
     'SESSION_REFRESH_EACH_REQUEST': True,
 })
 
+# Initialize database (creates tables in SQLite or Postgres/Supabase)
+try:
+    init_db()
+except Exception as _e:
+    print('Warning: init_db() failed during startup:', _e)
+
 UPLOAD_FOLDER = os.path.join(os.path.dirname(__file__), 'uploads')
 ALLOWED_UPLOAD_EXTENSIONS = {'pdf', 'doc', 'docx', 'xlsx', 'xls', 'ppt', 'pptx', 'txt', 'jpg', 'jpeg', 'png', 'gif', 'zip'}
 os.makedirs(UPLOAD_FOLDER, exist_ok=True)
 
 def allowed_file(filename):
     return '.' in filename and filename.rsplit('.', 1)[1].lower() in ALLOWED_UPLOAD_EXTENSIONS
+
+
+def upload_to_supabase(filename, file_stream, content_type='application/octet-stream'):
+    if not supabase:
+        return False
+    try:
+        resp = supabase.storage.from_(SUPABASE_BUCKET).upload(filename, file_stream, content_type=content_type)
+        return resp.get('data') is not None
+    except Exception as e:
+        print('Supabase upload failed:', e)
+        return False
+
+
+def get_supabase_download_url(filename):
+    if not supabase:
+        return None
+    try:
+        url_data = supabase.storage.from_(SUPABASE_BUCKET).create_signed_url(filename, 3600)
+        return url_data.get('signedURL')
+    except Exception as e:
+        print('Supabase signed URL failed:', e)
+        return None
 
 def get_accessible_host_url():
     public_url = os.environ.get('PUBLIC_URL', '').strip().rstrip('/')
@@ -522,7 +564,7 @@ def poll_results():
         flash("No poll selected", 'error')
         return redirect(url_for('poll'))
     results = get_poll_results(poll_id)
-    conn = sqlite3.connect(DB_NAME)
+    conn = get_conn()
     c = conn.cursor()
     c.execute("SELECT question FROM polls WHERE id=?", (poll_id,))
     row = c.fetchone()
@@ -644,9 +686,14 @@ def admin_announcements():
             if attachment and attachment.filename and allowed_file(attachment.filename):
                 safe_name = secure_filename(attachment.filename)
                 timestamped_name = f"{datetime.now().strftime('%Y%m%d%H%M%S')}_{safe_name}"
-                attachment_path = os.path.join(UPLOAD_FOLDER, timestamped_name)
-                attachment.save(attachment_path)
-                saved_attachments.append(timestamped_name)
+                if supabase:
+                    uploaded = upload_to_supabase(timestamped_name, attachment.stream, attachment.content_type or 'application/octet-stream')
+                    if uploaded:
+                        saved_attachments.append(timestamped_name)
+                else:
+                    attachment_path = os.path.join(UPLOAD_FOLDER, timestamped_name)
+                    attachment.save(attachment_path)
+                    saved_attachments.append(timestamped_name)
 
         add_announcement(title, content, course_code, session['user'], announcement_type, saved_attachments)
         if send_to_email:
@@ -712,6 +759,12 @@ def admin_email_test():
 
 @app.route('/uploads/<path:filename>')
 def download_upload(filename):
+    if supabase:
+        url = get_supabase_download_url(filename)
+        if url:
+            return redirect(url)
+        flash('Attachment not found in storage.', 'error')
+        return redirect(url_for('admin_announcements'))
     return send_from_directory(UPLOAD_FOLDER, filename, as_attachment=True)
 
 # ---------- Home redirect ----------

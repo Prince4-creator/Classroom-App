@@ -1,1 +1,7 @@
 .vercel
+.env
+classroom.db
+uploads/
+__pycache__/
+*.pyc
+.venv/

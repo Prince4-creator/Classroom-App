@@ -1,165 +1,340 @@
 import sqlite3
 import json
 import secrets
+import os
 from datetime import datetime, timedelta
 from werkzeug.security import generate_password_hash, check_password_hash
+
+# Optional Postgres (Supabase) support
+USE_POSTGRES = False
+PG_CONN_STR = os.environ.get('DATABASE_URL') or os.environ.get('SUPABASE_DB_URL')
+if PG_CONN_STR:
+    try:
+        import psycopg2
+        USE_POSTGRES = True
+    except Exception:
+        USE_POSTGRES = False
+
+
+def get_conn():
+    """Return a DB-connection-like object. For Postgres, return a thin wrapper
+    that converts ? placeholders to %s so the rest of the code can keep using ?.
+    """
+    if USE_POSTGRES:
+        real = psycopg2.connect(PG_CONN_STR, sslmode='require')
+
+        class CurWrap:
+            def __init__(self, cur):
+                self._cur = cur
+
+            def execute(self, sql, params=()):
+                try:
+                    return self._cur.execute(sql.replace('?', '%s'), params)
+                except Exception:
+                    return self._cur.execute(sql, params)
+
+            def executemany(self, sql, params):
+                try:
+                    return self._cur.executemany(sql.replace('?', '%s'), params)
+                except Exception:
+                    return self._cur.executemany(sql, params)
+
+            def fetchone(self):
+                return self._cur.fetchone()
+
+            def fetchall(self):
+                return self._cur.fetchall()
+
+            def close(self):
+                return self._cur.close()
+
+            @property
+            def rowcount(self):
+                return self._cur.rowcount
+
+        class ConnWrap:
+            def __init__(self, real):
+                self._real = real
+
+            def cursor(self):
+                return CurWrap(self._real.cursor())
+
+            def commit(self):
+                return self._real.commit()
+
+            def close(self):
+                return self._real.close()
+
+        return ConnWrap(real)
+
+    return sqlite3.connect(DB_NAME)
 
 DB_NAME = 'classroom.db'
 SESSION_DURATION_MINUTES = 30
 
 def init_db():
-    conn = sqlite3.connect(DB_NAME)
+    conn = get_conn()
     c = conn.cursor()
-    
-    # Users table (admins & instructors)
-    c.execute('''CREATE TABLE IF NOT EXISTS users (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        username TEXT UNIQUE NOT NULL,
-        password_hash TEXT NOT NULL,
-        role TEXT NOT NULL
-    )''')
-    
-    # Students table (with password, email, and registration status)
-    c.execute('''CREATE TABLE IF NOT EXISTS students (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        student_id TEXT UNIQUE NOT NULL,
-        name TEXT NOT NULL,
-        password_hash TEXT NOT NULL,
-        class_code TEXT,
-        email TEXT,
-        status TEXT DEFAULT 'active'
-    )''')
-    
-    # Courses
-    c.execute('''CREATE TABLE IF NOT EXISTS courses (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        course_code TEXT UNIQUE NOT NULL,
-        course_name TEXT NOT NULL
-    )''')
-    
-    # Attendance
-    c.execute('''CREATE TABLE IF NOT EXISTS attendance (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        student_id TEXT NOT NULL,
-        course_code TEXT NOT NULL,
-        date TEXT NOT NULL,
-        time TEXT NOT NULL,
-        status TEXT DEFAULT 'present',
-        latitude REAL,
-        longitude REAL,
-        FOREIGN KEY (student_id) REFERENCES students(student_id),
-        FOREIGN KEY (course_code) REFERENCES courses(course_code)
-    )''')
 
-    # Attendance sessions for QR/token check-in
-    c.execute('''CREATE TABLE IF NOT EXISTS attendance_sessions (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        course_code TEXT NOT NULL,
-        date TEXT NOT NULL,
-        token TEXT UNIQUE NOT NULL,
-        created_at TEXT NOT NULL,
-        expires_at TEXT,
-        active INTEGER DEFAULT 1,
-        FOREIGN KEY (course_code) REFERENCES courses(course_code)
-    )''')
-    # Add expires_at if the column is missing in older schemas
-    c.execute("PRAGMA table_info(attendance_sessions)")
-    columns = [row[1] for row in c.fetchall()]
-    if 'expires_at' not in columns:
-        c.execute("ALTER TABLE attendance_sessions ADD COLUMN expires_at TEXT")
-    
-    # Polls
-    c.execute('''CREATE TABLE IF NOT EXISTS polls (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        course_code TEXT NOT NULL,
-        question TEXT NOT NULL,
-        options TEXT NOT NULL,
-        created_at TEXT NOT NULL,
-        active INTEGER DEFAULT 1
-    )''')
-    
-    # Votes
-    c.execute('''CREATE TABLE IF NOT EXISTS votes (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        poll_id INTEGER NOT NULL,
-        student_id TEXT NOT NULL,
-        answer TEXT NOT NULL,
-        voted_at TEXT NOT NULL,
-        UNIQUE(poll_id, student_id)
-    )''')
-    
-    # Announcements
-    c.execute('''CREATE TABLE IF NOT EXISTS announcements (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        title TEXT NOT NULL,
-        content TEXT NOT NULL,
-        course_code TEXT,
-        announcement_type TEXT DEFAULT 'announcement',
-        attachments TEXT,
-        created_at TEXT NOT NULL,
-        created_by TEXT
-    )''')
+    if USE_POSTGRES:
+        # Create Postgres-compatible tables
+        c.execute('''CREATE TABLE IF NOT EXISTS users (
+            id SERIAL PRIMARY KEY,
+            username TEXT UNIQUE NOT NULL,
+            password_hash TEXT NOT NULL,
+            role TEXT NOT NULL
+        )''')
 
-    c.execute('''CREATE TABLE IF NOT EXISTS auth_events (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        username TEXT,
-        role TEXT,
-        event_type TEXT NOT NULL,
-        success INTEGER NOT NULL,
-        event_time TEXT NOT NULL,
-        ip_address TEXT
-    )''')
-    
-    # Add new columns if the schema was created before updates
-    c.execute("PRAGMA table_info(students)")
-    student_columns = [row[1] for row in c.fetchall()]
-    if 'email' not in student_columns:
-        c.execute("ALTER TABLE students ADD COLUMN email TEXT")
-    if 'status' not in student_columns:
-        c.execute("ALTER TABLE students ADD COLUMN status TEXT DEFAULT 'active'")
-    c.execute("PRAGMA table_info(attendance)")
-    attendance_columns = [row[1] for row in c.fetchall()]
-    if 'latitude' not in attendance_columns:
-        c.execute("ALTER TABLE attendance ADD COLUMN latitude REAL")
-    if 'longitude' not in attendance_columns:
-        c.execute("ALTER TABLE attendance ADD COLUMN longitude REAL")
-    c.execute("PRAGMA table_info(announcements)")
-    announcement_columns = [row[1] for row in c.fetchall()]
-    if 'announcement_type' not in announcement_columns:
-        c.execute("ALTER TABLE announcements ADD COLUMN announcement_type TEXT DEFAULT 'announcement'")
-    if 'attachments' not in announcement_columns:
-        c.execute("ALTER TABLE announcements ADD COLUMN attachments TEXT")
-    
-    # Insert default admin (password: admin123)
-    admin_hash = generate_password_hash('admin123')
-    c.execute("SELECT * FROM users WHERE username='admin'")
-    if not c.fetchone():
-        c.execute("INSERT INTO users (username, password_hash, role) VALUES (?, ?, ?)",
-                  ('admin', admin_hash, 'admin'))
-    
-    # Insert demo courses
-    c.execute("SELECT * FROM courses")
-    if not c.fetchone():
-        c.execute("INSERT INTO courses (course_code, course_name) VALUES (?, ?)", ('CS101', 'Introduction to Programming'))
-        c.execute("INSERT INTO courses (course_code, course_name) VALUES (?, ?)", ('MATH201', 'Calculus I'))
-    
-    # Insert demo student (password: student123)
-    student_hash = generate_password_hash('student123')
-    c.execute("SELECT * FROM students WHERE student_id='S001'")
-    if not c.fetchone():
-        c.execute("INSERT INTO students (student_id, name, password_hash, class_code) VALUES (?,?,?,?)",
-                  ('S001', 'Alice Wonderland', student_hash, 'CS101'))
+        c.execute('''CREATE TABLE IF NOT EXISTS students (
+            id SERIAL PRIMARY KEY,
+            student_id TEXT UNIQUE NOT NULL,
+            name TEXT NOT NULL,
+            password_hash TEXT NOT NULL,
+            class_code TEXT,
+            email TEXT,
+            status TEXT DEFAULT 'active'
+        )''')
 
-    # Magic login tokens for passwordless login
-    c.execute('''CREATE TABLE IF NOT EXISTS magic_tokens (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        student_id TEXT NOT NULL,
-        token TEXT UNIQUE NOT NULL,
-        created_at TEXT NOT NULL,
-        expires_at TEXT,
-        used INTEGER DEFAULT 0,
-        FOREIGN KEY (student_id) REFERENCES students(student_id)
-    )''')
+        c.execute('''CREATE TABLE IF NOT EXISTS courses (
+            id SERIAL PRIMARY KEY,
+            course_code TEXT UNIQUE NOT NULL,
+            course_name TEXT NOT NULL
+        )''')
+
+        c.execute('''CREATE TABLE IF NOT EXISTS attendance (
+            id SERIAL PRIMARY KEY,
+            student_id TEXT NOT NULL,
+            course_code TEXT NOT NULL,
+            date TEXT NOT NULL,
+            time TEXT NOT NULL,
+            status TEXT DEFAULT 'present',
+            latitude DOUBLE PRECISION,
+            longitude DOUBLE PRECISION
+        )''')
+
+        c.execute('''CREATE TABLE IF NOT EXISTS attendance_sessions (
+            id SERIAL PRIMARY KEY,
+            course_code TEXT NOT NULL,
+            date TEXT NOT NULL,
+            token TEXT UNIQUE NOT NULL,
+            created_at TEXT NOT NULL,
+            expires_at TEXT,
+            active INTEGER DEFAULT 1
+        )''')
+
+        c.execute('''CREATE TABLE IF NOT EXISTS polls (
+            id SERIAL PRIMARY KEY,
+            course_code TEXT NOT NULL,
+            question TEXT NOT NULL,
+            options TEXT NOT NULL,
+            created_at TEXT NOT NULL,
+            active INTEGER DEFAULT 1
+        )''')
+
+        c.execute('''CREATE TABLE IF NOT EXISTS votes (
+            id SERIAL PRIMARY KEY,
+            poll_id INTEGER NOT NULL,
+            student_id TEXT NOT NULL,
+            answer TEXT NOT NULL,
+            voted_at TEXT NOT NULL
+        )''')
+
+        c.execute('''CREATE TABLE IF NOT EXISTS announcements (
+            id SERIAL PRIMARY KEY,
+            title TEXT NOT NULL,
+            content TEXT NOT NULL,
+            course_code TEXT,
+            announcement_type TEXT DEFAULT 'announcement',
+            attachments TEXT,
+            created_at TEXT NOT NULL,
+            created_by TEXT
+        )''')
+
+        c.execute('''CREATE TABLE IF NOT EXISTS auth_events (
+            id SERIAL PRIMARY KEY,
+            username TEXT,
+            role TEXT,
+            event_type TEXT NOT NULL,
+            success INTEGER NOT NULL,
+            event_time TEXT NOT NULL,
+            ip_address TEXT
+        )''')
+
+        c.execute('''CREATE TABLE IF NOT EXISTS magic_tokens (
+            id SERIAL PRIMARY KEY,
+            student_id TEXT NOT NULL,
+            token TEXT UNIQUE NOT NULL,
+            created_at TEXT NOT NULL,
+            expires_at TEXT,
+            used INTEGER DEFAULT 0
+        )''')
+
+        # Add missing columns safely (Postgres supports ADD COLUMN IF NOT EXISTS)
+        c.execute("ALTER TABLE students ADD COLUMN IF NOT EXISTS email TEXT")
+        c.execute("ALTER TABLE students ADD COLUMN IF NOT EXISTS status TEXT DEFAULT 'active'")
+        c.execute("ALTER TABLE attendance ADD COLUMN IF NOT EXISTS latitude DOUBLE PRECISION")
+        c.execute("ALTER TABLE attendance ADD COLUMN IF NOT EXISTS longitude DOUBLE PRECISION")
+        c.execute("ALTER TABLE announcements ADD COLUMN IF NOT EXISTS announcement_type TEXT DEFAULT 'announcement'")
+        c.execute("ALTER TABLE announcements ADD COLUMN IF NOT EXISTS attachments TEXT")
+
+        # Insert defaults if missing
+        c.execute("SELECT 1 FROM users WHERE username='admin'")
+        if not c.fetchone():
+            admin_hash = generate_password_hash('admin123')
+            c.execute("INSERT INTO users (username, password_hash, role) VALUES (%s, %s, %s)", ('admin', admin_hash, 'admin'))
+
+        c.execute("SELECT 1 FROM courses LIMIT 1")
+        if not c.fetchone():
+            c.execute("INSERT INTO courses (course_code, course_name) VALUES (%s, %s)", ('CS101', 'Introduction to Programming'))
+            c.execute("INSERT INTO courses (course_code, course_name) VALUES (%s, %s)", ('MATH201', 'Calculus I'))
+
+        c.execute("SELECT 1 FROM students WHERE student_id='S001'")
+        if not c.fetchone():
+            student_hash = generate_password_hash('student123')
+            c.execute("INSERT INTO students (student_id, name, password_hash, class_code) VALUES (%s, %s, %s, %s)",
+                      ('S001', 'Alice Wonderland', student_hash, 'CS101'))
+
+    else:
+        # SQLite path (existing behavior)
+        conn_sql = conn
+        c_sql = c
+
+        c_sql.execute('''CREATE TABLE IF NOT EXISTS users (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            username TEXT UNIQUE NOT NULL,
+            password_hash TEXT NOT NULL,
+            role TEXT NOT NULL
+        )''')
+
+        c_sql.execute('''CREATE TABLE IF NOT EXISTS students (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            student_id TEXT UNIQUE NOT NULL,
+            name TEXT NOT NULL,
+            password_hash TEXT NOT NULL,
+            class_code TEXT,
+            email TEXT,
+            status TEXT DEFAULT 'active'
+        )''')
+
+        c_sql.execute('''CREATE TABLE IF NOT EXISTS courses (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            course_code TEXT UNIQUE NOT NULL,
+            course_name TEXT NOT NULL
+        )''')
+
+        c_sql.execute('''CREATE TABLE IF NOT EXISTS attendance (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            student_id TEXT NOT NULL,
+            course_code TEXT NOT NULL,
+            date TEXT NOT NULL,
+            time TEXT NOT NULL,
+            status TEXT DEFAULT 'present',
+            latitude REAL,
+            longitude REAL,
+            FOREIGN KEY (student_id) REFERENCES students(student_id),
+            FOREIGN KEY (course_code) REFERENCES courses(course_code)
+        )''')
+
+        c_sql.execute('''CREATE TABLE IF NOT EXISTS attendance_sessions (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            course_code TEXT NOT NULL,
+            date TEXT NOT NULL,
+            token TEXT UNIQUE NOT NULL,
+            created_at TEXT NOT NULL,
+            expires_at TEXT,
+            active INTEGER DEFAULT 1,
+            FOREIGN KEY (course_code) REFERENCES courses(course_code)
+        )''')
+
+        c_sql.execute('''CREATE TABLE IF NOT EXISTS polls (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            course_code TEXT NOT NULL,
+            question TEXT NOT NULL,
+            options TEXT NOT NULL,
+            created_at TEXT NOT NULL,
+            active INTEGER DEFAULT 1
+        )''')
+
+        c_sql.execute('''CREATE TABLE IF NOT EXISTS votes (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            poll_id INTEGER NOT NULL,
+            student_id TEXT NOT NULL,
+            answer TEXT NOT NULL,
+            voted_at TEXT NOT NULL,
+            UNIQUE(poll_id, student_id)
+        )''')
+
+        c_sql.execute('''CREATE TABLE IF NOT EXISTS announcements (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            title TEXT NOT NULL,
+            content TEXT NOT NULL,
+            course_code TEXT,
+            announcement_type TEXT DEFAULT 'announcement',
+            attachments TEXT,
+            created_at TEXT NOT NULL,
+            created_by TEXT
+        )''')
+
+        c_sql.execute('''CREATE TABLE IF NOT EXISTS auth_events (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            username TEXT,
+            role TEXT,
+            event_type TEXT NOT NULL,
+            success INTEGER NOT NULL,
+            event_time TEXT NOT NULL,
+            ip_address TEXT
+        )''')
+
+        # Add new columns if the schema was created before updates
+        c_sql.execute("PRAGMA table_info(students)")
+        student_columns = [row[1] for row in c_sql.fetchall()]
+        if 'email' not in student_columns:
+            c_sql.execute("ALTER TABLE students ADD COLUMN email TEXT")
+        if 'status' not in student_columns:
+            c_sql.execute("ALTER TABLE students ADD COLUMN status TEXT DEFAULT 'active'")
+        c_sql.execute("PRAGMA table_info(attendance)")
+        attendance_columns = [row[1] for row in c_sql.fetchall()]
+        if 'latitude' not in attendance_columns:
+            c_sql.execute("ALTER TABLE attendance ADD COLUMN latitude REAL")
+        if 'longitude' not in attendance_columns:
+            c_sql.execute("ALTER TABLE attendance ADD COLUMN longitude REAL")
+        c_sql.execute("PRAGMA table_info(announcements)")
+        announcement_columns = [row[1] for row in c_sql.fetchall()]
+        if 'announcement_type' not in announcement_columns:
+            c_sql.execute("ALTER TABLE announcements ADD COLUMN announcement_type TEXT DEFAULT 'announcement'")
+        if 'attachments' not in announcement_columns:
+            c_sql.execute("ALTER TABLE announcements ADD COLUMN attachments TEXT")
+
+        # Insert default admin (password: admin123)
+        admin_hash = generate_password_hash('admin123')
+        c_sql.execute("SELECT * FROM users WHERE username='admin'")
+        if not c_sql.fetchone():
+            c_sql.execute("INSERT INTO users (username, password_hash, role) VALUES (?, ?, ?)",
+                          ('admin', admin_hash, 'admin'))
+
+        # Insert demo courses
+        c_sql.execute("SELECT * FROM courses")
+        if not c_sql.fetchone():
+            c_sql.execute("INSERT INTO courses (course_code, course_name) VALUES (?, ?)", ('CS101', 'Introduction to Programming'))
+            c_sql.execute("INSERT INTO courses (course_code, course_name) VALUES (?, ?)", ('MATH201', 'Calculus I'))
+
+        # Insert demo student (password: student123)
+        student_hash = generate_password_hash('student123')
+        c_sql.execute("SELECT * FROM students WHERE student_id='S001'")
+        if not c_sql.fetchone():
+            c_sql.execute("INSERT INTO students (student_id, name, password_hash, class_code) VALUES (?,?,?,?)",
+                          ('S001', 'Alice Wonderland', student_hash, 'CS101'))
+
+        # Magic login tokens for passwordless login
+        c_sql.execute('''CREATE TABLE IF NOT EXISTS magic_tokens (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            student_id TEXT NOT NULL,
+            token TEXT UNIQUE NOT NULL,
+            created_at TEXT NOT NULL,
+            expires_at TEXT,
+            used INTEGER DEFAULT 0,
+            FOREIGN KEY (student_id) REFERENCES students(student_id)
+        )''')
 
     conn.commit()
     conn.close()
@@ -167,7 +342,7 @@ def init_db():
 # ------- Magic tokens (passwordless login) -------
 
 def create_magic_token(student_id, minutes_valid=15):
-    conn = sqlite3.connect(DB_NAME)
+    conn = get_conn()
     c = conn.cursor()
     token = secrets.token_urlsafe(16)
     now = datetime.now()
@@ -180,7 +355,7 @@ def create_magic_token(student_id, minutes_valid=15):
 
 
 def get_magic_token(token):
-    conn = sqlite3.connect(DB_NAME)
+    conn = get_conn()
     c = conn.cursor()
     now = datetime.now().isoformat()
     c.execute("SELECT student_id, expires_at, used FROM magic_tokens WHERE token=?", (token,))
@@ -197,7 +372,7 @@ def get_magic_token(token):
 
 
 def consume_magic_token(token):
-    conn = sqlite3.connect(DB_NAME)
+    conn = get_conn()
     c = conn.cursor()
     c.execute("UPDATE magic_tokens SET used=1 WHERE token=?", (token,))
     conn.commit()
@@ -205,7 +380,7 @@ def consume_magic_token(token):
 
 # ------- Users (Admin/Instructor) -------
 def add_user(username, password, role):
-    conn = sqlite3.connect(DB_NAME)
+    conn = get_conn()
     c = conn.cursor()
     password_hash = generate_password_hash(password)
     try:
@@ -219,7 +394,7 @@ def add_user(username, password, role):
         conn.close()
 
 def verify_user(username, password):
-    conn = sqlite3.connect(DB_NAME)
+    conn = get_conn()
     c = conn.cursor()
     c.execute("SELECT password_hash, role FROM users WHERE username=?", (username,))
     row = c.fetchone()
@@ -229,7 +404,7 @@ def verify_user(username, password):
     return None
 
 def get_all_users():
-    conn = sqlite3.connect(DB_NAME)
+    conn = get_conn()
     c = conn.cursor()
     c.execute("SELECT id, username, role FROM users")
     rows = c.fetchall()
@@ -237,7 +412,7 @@ def get_all_users():
     return [{'id': r[0], 'username': r[1], 'role': r[2]} for r in rows]
 
 def delete_user(user_id):
-    conn = sqlite3.connect(DB_NAME)
+    conn = get_conn()
     c = conn.cursor()
     c.execute("DELETE FROM users WHERE id=?", (user_id,))
     conn.commit()
@@ -245,7 +420,7 @@ def delete_user(user_id):
 
 # ------- Students (with password) -------
 def add_student(student_id, name, password, class_code='', email='', status='active'):
-    conn = sqlite3.connect(DB_NAME)
+    conn = get_conn()
     c = conn.cursor()
     password_hash = generate_password_hash(password)
     try:
@@ -259,7 +434,7 @@ def add_student(student_id, name, password, class_code='', email='', status='act
         conn.close()
 
 def update_student(student_id, name, class_code='', email=''):
-    conn = sqlite3.connect(DB_NAME)
+    conn = get_conn()
     c = conn.cursor()
     try:
         c.execute("UPDATE students SET name=?, class_code=?, email=? WHERE student_id=?",
@@ -272,7 +447,7 @@ def update_student(student_id, name, class_code='', email=''):
         conn.close()
 
 def update_student_password(student_id, password):
-    conn = sqlite3.connect(DB_NAME)
+    conn = get_conn()
     c = conn.cursor()
     password_hash = generate_password_hash(password)
     try:
@@ -286,7 +461,7 @@ def update_student_password(student_id, password):
         conn.close()
 
 def verify_student(student_id, password):
-    conn = sqlite3.connect(DB_NAME)
+    conn = get_conn()
     c = conn.cursor()
     c.execute("SELECT name, password_hash FROM students WHERE student_id=? AND status='active'", (student_id,))
     row = c.fetchone()
@@ -296,7 +471,7 @@ def verify_student(student_id, password):
     return None
 
 def get_all_students():
-    conn = sqlite3.connect(DB_NAME)
+    conn = get_conn()
     c = conn.cursor()
     c.execute("SELECT student_id, name, class_code, email, status FROM students ORDER BY name")
     rows = c.fetchall()
@@ -304,14 +479,14 @@ def get_all_students():
     return [{'student_id': r[0], 'name': r[1], 'class_code': r[2], 'email': r[3], 'status': r[4]} for r in rows]
 
 def approve_student(student_id):
-    conn = sqlite3.connect(DB_NAME)
+    conn = get_conn()
     c = conn.cursor()
     c.execute("UPDATE students SET status='active' WHERE student_id=?", (student_id,))
     conn.commit()
     conn.close()
 
 def get_pending_student_count():
-    conn = sqlite3.connect(DB_NAME)
+    conn = get_conn()
     c = conn.cursor()
     c.execute("SELECT COUNT(*) FROM students WHERE status='pending'")
     total = c.fetchone()[0] or 0
@@ -319,7 +494,7 @@ def get_pending_student_count():
     return total
 
 def get_pending_students():
-    conn = sqlite3.connect(DB_NAME)
+    conn = get_conn()
     c = conn.cursor()
     c.execute("SELECT student_id, name, class_code, email FROM students WHERE status='pending' ORDER BY name")
     rows = c.fetchall()
@@ -327,7 +502,7 @@ def get_pending_students():
     return [{'student_id': r[0], 'name': r[1], 'class_code': r[2], 'email': r[3]} for r in rows]
 
 def get_total_students():
-    conn = sqlite3.connect(DB_NAME)
+    conn = get_conn()
     c = conn.cursor()
     c.execute("SELECT COUNT(*) FROM students")
     total = c.fetchone()[0] or 0
@@ -335,7 +510,7 @@ def get_total_students():
     return total
 
 def get_total_announcements():
-    conn = sqlite3.connect(DB_NAME)
+    conn = get_conn()
     c = conn.cursor()
     c.execute("SELECT COUNT(*) FROM announcements")
     total = c.fetchone()[0] or 0
@@ -343,7 +518,7 @@ def get_total_announcements():
     return total
 
 def get_total_attendance_records():
-    conn = sqlite3.connect(DB_NAME)
+    conn = get_conn()
     c = conn.cursor()
     c.execute("SELECT COUNT(*) FROM attendance")
     total = c.fetchone()[0] or 0
@@ -351,7 +526,7 @@ def get_total_attendance_records():
     return total
 
 def get_attendance_today_count():
-    conn = sqlite3.connect(DB_NAME)
+    conn = get_conn()
     c = conn.cursor()
     today = datetime.now().strftime('%Y-%m-%d')
     c.execute("SELECT COUNT(*) FROM attendance WHERE date=?", (today,))
@@ -360,7 +535,7 @@ def get_attendance_today_count():
     return total
 
 def get_students_incomplete_profiles():
-    conn = sqlite3.connect(DB_NAME)
+    conn = get_conn()
     c = conn.cursor()
     c.execute("SELECT COUNT(*) FROM students WHERE class_code IS NULL OR class_code='' OR email IS NULL OR email=''")
     total = c.fetchone()[0] or 0
@@ -368,7 +543,7 @@ def get_students_incomplete_profiles():
     return total
 
 def log_auth_event(username, role, event_type, success, ip_address=None):
-    conn = sqlite3.connect(DB_NAME)
+    conn = get_conn()
     c = conn.cursor()
     c.execute("INSERT INTO auth_events (username, role, event_type, success, event_time, ip_address) VALUES (?, ?, ?, ?, ?, ?)",
               (username, role, event_type, 1 if success else 0, datetime.now().strftime('%Y-%m-%d %H:%M:%S'), ip_address))
@@ -377,7 +552,7 @@ def log_auth_event(username, role, event_type, success, ip_address=None):
 
 def count_failed_auth_attempts(username, ip_address, minutes=15):
     cutoff = (datetime.now() - timedelta(minutes=minutes)).strftime('%Y-%m-%d %H:%M:%S')
-    conn = sqlite3.connect(DB_NAME)
+    conn = get_conn()
     c = conn.cursor()
     c.execute("SELECT COUNT(*) FROM auth_events WHERE success=0 AND event_time>=? AND (username=? OR ip_address=?)", (cutoff, username, ip_address))
     total = c.fetchone()[0] or 0
@@ -385,7 +560,7 @@ def count_failed_auth_attempts(username, ip_address, minutes=15):
     return total
 
 def get_recent_auth_events(limit=5):
-    conn = sqlite3.connect(DB_NAME)
+    conn = get_conn()
     c = conn.cursor()
     c.execute("SELECT username, role, event_type, success, event_time, ip_address FROM auth_events ORDER BY event_time DESC LIMIT ?", (limit,))
     rows = c.fetchall()
@@ -393,7 +568,7 @@ def get_recent_auth_events(limit=5):
     return [{'username': r[0], 'role': r[1], 'event_type': r[2], 'success': bool(r[3]), 'event_time': r[4], 'ip_address': r[5]} for r in rows]
 
 def get_student_emails(course_code=None):
-    conn = sqlite3.connect(DB_NAME)
+    conn = get_conn()
     c = conn.cursor()
     if course_code:
         c.execute("SELECT email FROM students WHERE class_code=? AND email IS NOT NULL AND email!=''", (course_code,))
@@ -404,7 +579,7 @@ def get_student_emails(course_code=None):
     return [r[0] for r in rows if r[0]]
 
 def get_student_info(student_id):
-    conn = sqlite3.connect(DB_NAME)
+    conn = get_conn()
     c = conn.cursor()
     c.execute("SELECT name, class_code, email FROM students WHERE student_id=?", (student_id,))
     row = c.fetchone()
@@ -412,7 +587,7 @@ def get_student_info(student_id):
     return {'name': row[0], 'class_code': row[1], 'email': row[2]} if row else None
 
 def get_student_name(student_id):
-    conn = sqlite3.connect(DB_NAME)
+    conn = get_conn()
     c = conn.cursor()
     c.execute("SELECT name FROM students WHERE student_id=?", (student_id,))
     row = c.fetchone()
@@ -420,7 +595,7 @@ def get_student_name(student_id):
     return row[0] if row else None
 
 def delete_student(student_id):
-    conn = sqlite3.connect(DB_NAME)
+    conn = get_conn()
     c = conn.cursor()
     c.execute("DELETE FROM students WHERE student_id=?", (student_id,))
     conn.commit()
@@ -428,7 +603,7 @@ def delete_student(student_id):
 
 # ------- Courses -------
 def get_all_courses():
-    conn = sqlite3.connect(DB_NAME)
+    conn = get_conn()
     c = conn.cursor()
     c.execute("SELECT course_code, course_name FROM courses ORDER BY course_code")
     rows = c.fetchall()
@@ -436,7 +611,7 @@ def get_all_courses():
     return [{'code': r[0], 'name': r[1]} for r in rows]
 
 def add_course(code, name):
-    conn = sqlite3.connect(DB_NAME)
+    conn = get_conn()
     c = conn.cursor()
     try:
         c.execute("INSERT INTO courses (course_code, course_name) VALUES (?, ?)", (code, name))
@@ -448,7 +623,7 @@ def add_course(code, name):
         conn.close()
 
 def delete_course(code):
-    conn = sqlite3.connect(DB_NAME)
+    conn = get_conn()
     c = conn.cursor()
     c.execute("DELETE FROM courses WHERE course_code=?", (code,))
     conn.commit()
@@ -456,7 +631,7 @@ def delete_course(code):
 
 # ------- Attendance -------
 def mark_attendance(student_id, course_code, date_str, time_str, status='present', latitude=None, longitude=None):
-    conn = sqlite3.connect(DB_NAME)
+    conn = get_conn()
     c = conn.cursor()
     c.execute("SELECT id FROM attendance WHERE student_id=? AND course_code=? AND date=?", 
               (student_id, course_code, date_str))
@@ -471,7 +646,7 @@ def mark_attendance(student_id, course_code, date_str, time_str, status='present
     conn.close()
 
 def get_attendance_by_date_and_course(date, course_code):
-    conn = sqlite3.connect(DB_NAME)
+    conn = get_conn()
     c = conn.cursor()
     c.execute('''SELECT a.id, a.student_id, s.name, a.course_code, co.course_name, a.time, a.status, a.latitude, a.longitude
                  FROM attendance a
@@ -483,7 +658,7 @@ def get_attendance_by_date_and_course(date, course_code):
     return [{'id': r[0], 'student_id': r[1], 'name': r[2], 'course_code': r[3], 'course_name': r[4], 'time': r[5], 'status': r[6], 'latitude': r[7], 'longitude': r[8]} for r in rows]
 
 def get_attendance_for_student(student_id, course_code=None):
-    conn = sqlite3.connect(DB_NAME)
+    conn = get_conn()
     c = conn.cursor()
     if course_code:
         c.execute("SELECT date, time, status FROM attendance WHERE student_id=? AND course_code=? ORDER BY date DESC", (student_id, course_code))
@@ -494,7 +669,7 @@ def get_attendance_for_student(student_id, course_code=None):
     return rows
 
 def get_all_attendance_dates_for_course(course_code):
-    conn = sqlite3.connect(DB_NAME)
+    conn = get_conn()
     c = conn.cursor()
     c.execute("SELECT DISTINCT date FROM attendance WHERE course_code=? ORDER BY date DESC", (course_code,))
     rows = c.fetchall()
@@ -502,14 +677,14 @@ def get_all_attendance_dates_for_course(course_code):
     return [r[0] for r in rows]
 
 def update_attendance_status(record_id, status):
-    conn = sqlite3.connect(DB_NAME)
+    conn = get_conn()
     c = conn.cursor()
     c.execute("UPDATE attendance SET status=? WHERE id=?", (status, record_id))
     conn.commit()
     conn.close()
 
 def get_attendance_stats(course_code):
-    conn = sqlite3.connect(DB_NAME)
+    conn = get_conn()
     c = conn.cursor()
     c.execute("SELECT COUNT(*) FROM students WHERE class_code=?", (course_code,))
     total_students = c.fetchone()[0] or 0
@@ -521,7 +696,7 @@ def get_attendance_stats(course_code):
     return {'total_students': total_students, 'days': days, 'present': present}
 
 def create_attendance_session(course_code, date_str):
-    conn = sqlite3.connect(DB_NAME)
+    conn = get_conn()
     c = conn.cursor()
     c.execute("UPDATE attendance_sessions SET active=0 WHERE course_code=? AND date=? AND active=1",
               (course_code, date_str))
@@ -535,7 +710,7 @@ def create_attendance_session(course_code, date_str):
     return token
 
 def get_attendance_session_by_token(token):
-    conn = sqlite3.connect(DB_NAME)
+    conn = get_conn()
     c = conn.cursor()
     now = datetime.now().isoformat()
     c.execute("SELECT course_code, date, expires_at FROM attendance_sessions WHERE token=? AND active=1", (token,))
@@ -551,7 +726,7 @@ def get_attendance_session_by_token(token):
     return {'course_code': row[0], 'date': row[1]} if row else None
 
 def get_active_attendance_session(course_code, date_str):
-    conn = sqlite3.connect(DB_NAME)
+    conn = get_conn()
     c = conn.cursor()
     now = datetime.now().isoformat()
     c.execute("SELECT token, expires_at FROM attendance_sessions WHERE course_code=? AND date=? AND active=1 ORDER BY created_at DESC LIMIT 1",
@@ -569,7 +744,7 @@ def get_active_attendance_session(course_code, date_str):
     return row[0] if row else None
 
 def get_active_attendance_session_info(course_code, date_str):
-    conn = sqlite3.connect(DB_NAME)
+    conn = get_conn()
     c = conn.cursor()
     now = datetime.now().isoformat()
     c.execute("SELECT token, expires_at FROM attendance_sessions WHERE course_code=? AND date=? AND active=1 ORDER BY created_at DESC LIMIT 1",
@@ -589,7 +764,7 @@ def get_active_attendance_session_info(course_code, date_str):
 
 # ------- Announcements -------
 def add_announcement(title, content, course_code, created_by, announcement_type='announcement', attachments=None):
-    conn = sqlite3.connect(DB_NAME)
+    conn = get_conn()
     c = conn.cursor()
     now = datetime.now().isoformat()
     attachments_json = json.dumps(attachments or [])
@@ -599,7 +774,7 @@ def add_announcement(title, content, course_code, created_by, announcement_type=
     conn.close()
 
 def get_announcements(course_code=None):
-    conn = sqlite3.connect(DB_NAME)
+    conn = get_conn()
     c = conn.cursor()
     if course_code:
         c.execute("SELECT id, title, content, course_code, announcement_type, attachments, created_at, created_by FROM announcements WHERE course_code=? OR course_code IS NULL ORDER BY created_at DESC", (course_code,))
@@ -620,7 +795,7 @@ def get_announcements(course_code=None):
         } for r in rows]
 
 def delete_announcement(announcement_id):
-    conn = sqlite3.connect(DB_NAME)
+    conn = get_conn()
     c = conn.cursor()
     c.execute("DELETE FROM announcements WHERE id=?", (announcement_id,))
     conn.commit()
@@ -628,19 +803,28 @@ def delete_announcement(announcement_id):
 
 # ------- Polls -------
 def create_poll(course_code, question, options_list):
-    conn = sqlite3.connect(DB_NAME)
+    conn = get_conn()
     c = conn.cursor()
     options_json = json.dumps(options_list)
     now = datetime.now().isoformat()
-    c.execute("INSERT INTO polls (course_code, question, options, created_at, active) VALUES (?,?,?,?,1)",
-              (course_code, question, options_json, now))
+    if USE_POSTGRES:
+        c.execute("INSERT INTO polls (course_code, question, options, created_at, active) VALUES (%s, %s, %s, %s, 1) RETURNING id",
+                  (course_code, question, options_json, now))
+        poll_id = c.fetchone()[0]
+    else:
+        c.execute("INSERT INTO polls (course_code, question, options, created_at, active) VALUES (?,?,?,?,1)",
+                  (course_code, question, options_json, now))
+        conn.commit()
+        try:
+            poll_id = c.lastrowid
+        except Exception:
+            poll_id = None
     conn.commit()
-    poll_id = c.lastrowid
     conn.close()
     return poll_id
 
 def get_active_poll(course_code):
-    conn = sqlite3.connect(DB_NAME)
+    conn = get_conn()
     c = conn.cursor()
     c.execute("SELECT id, question, options FROM polls WHERE course_code=? AND active=1 ORDER BY created_at DESC LIMIT 1", (course_code,))
     row = c.fetchone()
@@ -650,7 +834,7 @@ def get_active_poll(course_code):
     return None
 
 def cast_vote(poll_id, student_id, answer):
-    conn = sqlite3.connect(DB_NAME)
+    conn = get_conn()
     c = conn.cursor()
     now = datetime.now().isoformat()
     try:
@@ -664,7 +848,7 @@ def cast_vote(poll_id, student_id, answer):
         conn.close()
 
 def get_poll_results(poll_id):
-    conn = sqlite3.connect(DB_NAME)
+    conn = get_conn()
     c = conn.cursor()
     c.execute("SELECT answer, COUNT(*) FROM votes WHERE poll_id=? GROUP BY answer", (poll_id,))
     rows = c.fetchall()
@@ -672,7 +856,7 @@ def get_poll_results(poll_id):
     return {r[0]: r[1] for r in rows}
 
 def close_poll(poll_id):
-    conn = sqlite3.connect(DB_NAME)
+    conn = get_conn()
     c = conn.cursor()
     c.execute("UPDATE polls SET active=0 WHERE id=?", (poll_id,))
     conn.commit()
