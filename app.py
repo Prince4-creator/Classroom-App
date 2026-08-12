@@ -110,7 +110,15 @@ def get_accessible_host_url():
 
 @app.after_request
 def apply_security_headers(response):
-    response.headers['Content-Security-Policy'] = "default-src 'self'; script-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net; style-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net; img-src 'self' data:;"
+    # Allow HTTPS images (logo hosted on external CDN) while keeping other
+    # restrictions tight. If you prefer, replace `https:` with a specific
+    # host like 'https://onemillioncoders.gov.gh'.
+    response.headers['Content-Security-Policy'] = (
+        "default-src 'self'; "
+        "script-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net; "
+        "style-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net; "
+        "img-src 'self' https: data:;"
+    )
     response.headers['X-Frame-Options'] = 'DENY'
     response.headers['X-Content-Type-Options'] = 'nosniff'
     response.headers['Referrer-Policy'] = 'no-referrer'
@@ -165,6 +173,12 @@ def send_email(subject, body, recipients):
         # Keep the exception text and try SSL fallback
         EMAIL_SEND_ERROR = f"STARTTLS attempt failed: {e_starttls}"
         print('STARTTLS send failed:', e_starttls)
+        # Log details for diagnostics (non-sensitive parts only)
+        try:
+            import traceback as _tb
+            print('Email error traceback:', _tb.format_exc())
+        except Exception:
+            pass
         # Try SSL on port 465 if different
         try:
             ssl_port = 465 if SMTP_PORT != 465 else SMTP_PORT
