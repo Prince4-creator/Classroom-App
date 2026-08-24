@@ -1,0 +1,3 @@
+ERROR: connection to server at "db.puqdlbvzcnvmqrfvorsw.supabase.co" (2a05:d014:14a4:4001:48e2:9f9d:73c0:91b8), port 5432 failed: Cannot assign requested address
+	Is the server running on that host and accepting TCP/IP connections?
+; IPv4-fallback-exception: [Errno -5] No address associated with hostname

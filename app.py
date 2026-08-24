@@ -126,6 +126,79 @@ def apply_security_headers(response):
     return response
 
 
+# Debug endpoint (protected): attempt a DB connection and return status.
+# Only enabled when `DEBUG_SECRET` env var is set and the request provides
+# the same secret as a query parameter to avoid accidental exposure.
+@app.route('/__debug/db')
+def debug_db():
+    secret = os.environ.get('DEBUG_SECRET', '').strip()
+    provided = request.args.get('secret', '')
+    if not secret or provided != secret:
+        return "Not authorized", 401
+    # Try to connect using the app's database settings
+    try:
+        if not PG_CONN_STR:
+            return 'PG_CONN_STR not configured', 500
+        import psycopg2
+        conn = psycopg2.connect(PG_CONN_STR, sslmode='require', connect_timeout=10)
+        cur = conn.cursor()
+        cur.execute('SELECT version()')
+        ver = cur.fetchone()
+        cur.close()
+        conn.close()
+        return f'DB OK: {ver[0]}', 200
+    except Exception as e:
+        # Return a concise error message for debugging (do not reveal secrets)
+        tb = traceback.format_exc()
+        print('Debug DB connect error (initial):', e)
+        print(tb)
+        # Try IPv4-only fallback: parse the PG_CONN_STR and attempt connect to an A record
+        try:
+            from urllib.parse import urlparse
+            import socket
+            parsed = urlparse(PG_CONN_STR)
+            # parsed.netloc may include user:pass@host:port
+            netloc = parsed.netloc
+            if '@' in netloc:
+                creds, hostport = netloc.rsplit('@', 1)
+            else:
+                creds = ''
+                hostport = netloc
+            if ':' in hostport:
+                host, port = hostport.split(':', 1)
+                port = int(port)
+            else:
+                host = hostport
+                port = 5432
+            username = parsed.username
+            password = parsed.password
+            dbname = parsed.path.lstrip('/') or parsed.hostname
+
+            # Resolve A records (IPv4)
+            addrs = socket.getaddrinfo(host, port, family=socket.AF_INET, type=socket.SOCK_STREAM)
+            ipv4_candidates = [a[4][0] for a in addrs]
+            if not ipv4_candidates:
+                return f'ERROR: no IPv4 address found for host {host}', 502
+            last_err = None
+            for ip in ipv4_candidates:
+                try:
+                    print('Attempting IPv4 connect to', ip)
+                    conn2 = psycopg2.connect(host=ip, port=port, user=username, password=password, dbname=dbname, sslmode='require', connect_timeout=10)
+                    cur2 = conn2.cursor()
+                    cur2.execute('SELECT version()')
+                    v2 = cur2.fetchone()
+                    cur2.close()
+                    conn2.close()
+                    return f'DB OK (IPv4): {v2[0]} (connected to {ip})', 200
+                except Exception as e2:
+                    last_err = e2
+                    print('IPv4 attempt failed for', ip, ':', e2)
+            return f'ERROR IPv4 attempts failed: {last_err}', 502
+        except Exception as inner:
+            print('IPv4 fallback error:', inner)
+            return f'ERROR: {str(e)}; IPv4-fallback-exception: {str(inner)}', 502
+
+
 def is_safe_url(target):
     if not target:
         return False
@@ -225,20 +298,30 @@ def admin_login():
         username = request.form['username']
         password = request.form['password']
         ip_address = request.remote_addr
-        if count_failed_auth_attempts(username, ip_address, minutes=15) >= 5:
-            flash('Too many failed login attempts. Try again later.', 'error')
-            log_auth_event(username, 'admin', 'admin_login_locked', False, ip_address)
+        try:
+            if count_failed_auth_attempts(username, ip_address, minutes=15) >= 5:
+                flash('Too many failed login attempts. Try again later.', 'error')
+                log_auth_event(username, 'admin', 'admin_login_locked', False, ip_address)
+                return render_template('admin_login.html')
+            role = verify_user(username, password)
+            if role in ('admin', 'instructor'):
+                session.clear()
+                session.permanent = True
+                session['user'] = username
+                session['role'] = role
+                log_auth_event(username, role, 'admin_login', True, ip_address)
+                return redirect(url_for('admin_panel' if role == 'admin' else 'dashboard'))
+            log_auth_event(username, 'admin', 'admin_login_failed', False, ip_address)
+            flash('Invalid admin credentials', 'error')
+        except Exception as e:
+            # Likely a DB/connectivity error (e.g. psycopg2.OperationalError). Do not expose internals.
+            print('Database error during admin_login:', e)
+            try:
+                traceback.print_exc()
+            except Exception:
+                pass
+            flash('Server error: unable to contact the database. Please try again later.', 'error')
             return render_template('admin_login.html')
-        role = verify_user(username, password)
-        if role in ('admin', 'instructor'):
-            session.clear()
-            session.permanent = True
-            session['user'] = username
-            session['role'] = role
-            log_auth_event(username, role, 'admin_login', True, ip_address)
-            return redirect(url_for('admin_panel' if role == 'admin' else 'dashboard'))
-        log_auth_event(username, 'admin', 'admin_login_failed', False, ip_address)
-        flash('Invalid admin credentials', 'error')
     return render_template('admin_login.html')
 
 @app.route('/student/login', methods=['GET', 'POST'])
