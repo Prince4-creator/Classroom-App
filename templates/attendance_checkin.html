@@ -5,11 +5,6 @@
     <div class="col-xl-6 col-lg-8">
         <div class="app-card p-4">
             <h2 class="h4 mb-3">Student Attendance Check-In</h2>
-            {% with messages = get_flashed_messages(with_categories=true) %}
-                {% for cat, msg in messages %}
-                    <div class="alert alert-{{ 'danger' if cat=='error' else 'success' }}">{{ msg }}</div>
-                {% endfor %}
-            {% endwith %}
             <form method="GET" class="row g-2 mb-4">
                 <div class="col-sm-9">
                     <input type="text" name="token" value="{{ token }}" class="form-control" placeholder="Enter attendance token">
@@ -19,49 +14,31 @@
                 </div>
             </form>
             {% if session_info %}
-                <div class="mb-4 p-3 rounded-3 border border-white-10" style="background: rgba(255,255,255,.04);">
+                <div class="mb-4 p-3 rounded-3 border" style="background: var(--bg);">
                     <p class="mb-1"><strong>Course</strong>: {{ session_info.course_code }}</p>
                     <p class="mb-0"><strong>Date</strong>: {{ session_info.date }}</p>
                 </div>
             {% elif token %}
                 <div class="alert alert-warning">Invalid or expired token. Please ask your instructor for a new link.</div>
             {% endif %}
-            <div class="mb-3">
-                <label class="form-label">Student ID</label>
-                <input id="student_id_input" type="text" name="student_id" class="form-control" placeholder="Enter your student ID" required>
-            </div>
-            <div class="mb-3">
-                <label class="form-label">Password</label>
-                <input id="password_input" type="password" name="password" class="form-control" placeholder="Enter your attendance password">
-            </div>
-            <div class="d-grid gap-2">
-                <form method="POST" id="login_form">
-                    <input type="hidden" name="token" value="{{ token }}">
-                    <input type="hidden" name="student_id" id="login_student_id" value="">
-                    <input type="hidden" name="password" id="login_password" value="">
-                    <button id="mark_attendance_btn" class="btn app-btn w-100">Mark Attendance</button>
-                </form>
-            </div>
+            <form method="POST">
+                <input type="hidden" name="token" value="{{ token }}">
+                <div class="mb-3">
+                    <label class="form-label">Student ID</label>
+                    <input type="text" name="student_id" class="form-control" placeholder="Enter your student ID" required>
+                </div>
+                <div class="mb-3">
+                    <label class="form-label">Password</label>
+                    <input type="password" name="password" class="form-control" placeholder="Enter your attendance password">
+                </div>
+                <div class="d-grid">
+                    <button class="btn app-btn w-100">Mark Attendance</button>
+                </div>
+            </form>
             <div class="mt-3 text-center">
                 <a href="/attendance" class="small text-info">Use manual attendance page</a>
             </div>
         </div>
     </div>
 </div>
-{% endblock %}
-
-{% block scripts %}
-<script>
-document.getElementById('mark_attendance_btn').addEventListener('click', function(e){
-    var sid = document.getElementById('student_id_input').value.trim();
-    var pwd = document.getElementById('password_input').value;
-    if(!sid){
-        alert('Enter your student ID');
-        e.preventDefault();
-        return;
-    }
-    document.getElementById('login_student_id').value = sid;
-    document.getElementById('login_password').value = pwd;
-});
-</script>
 {% endblock %}

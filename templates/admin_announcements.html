@@ -2,14 +2,6 @@
 {% block title %}Post Announcement - OneMillionCoders{% endblock %}
 {% block content %}
 <div class="row gy-4">
-    {% with messages = get_flashed_messages(with_categories=true) %}
-      {% for category, message in messages %}
-        <div class="alert alert-{{ 'success' if category == 'success' else 'warning' }}">
-          {{ message }}
-        </div>
-      {% endfor %}
-    {% endwith %}
-
     <div class="col-12">
         <div class="app-card p-4">
             <div class="d-flex flex-column flex-md-row justify-content-between align-items-start gap-3">
@@ -56,9 +48,12 @@
                 </div>
                 <div class="col-12">
                     <div class="form-check">
-                        <input class="form-check-input" type="checkbox" name="send_email" id="send_email">
+                        <input class="form-check-input" type="checkbox" name="send_email" id="send_email" {% if not smtp_configured %}disabled{% endif %}>
                         <label class="form-check-label" for="send_email">Send email to registered students</label>
                     </div>
+                    {% if not smtp_configured %}
+                    <p class="small text-muted mb-0 mt-1">Email is not configured — set SMTP_SERVER, SMTP_USERNAME and SMTP_PASSWORD to enable notifications.</p>
+                    {% endif %}
                 </div>
                 <div class="col-12 d-grid">
                     <button class="btn app-btn">Post Announcement</button>
@@ -72,7 +67,7 @@
             {% if announcements %}
                 <div class="list-group">
                     {% for a in announcements %}
-                    <div class="list-group-item mb-3 {% if a.announcement_type == 'assignment' %}assignment-card{% elif a.announcement_type == 'exercise' %}exercise-card{% else %}announcement-card{% endif %}" style="background: rgba(255,255,255,.04); border: 1px solid rgba(255,255,255,.08);">
+                    <div class="list-group-item mb-3 rounded-3 {% if a.announcement_type == 'assignment' %}assignment-card{% elif a.announcement_type == 'exercise' %}exercise-card{% else %}announcement-card{% endif %}">
                         <div class="d-flex justify-content-between align-items-start mb-2">
                             <div>
                                 <h3 class="h6 mb-1"><span class="badge {% if a.announcement_type == 'assignment' %}badge-assignment{% elif a.announcement_type == 'exercise' %}badge-exercise{% else %}badge-announcement{% endif %}"> {{ a.announcement_type|capitalize }} </span> {{ a.title }}</h3>

@@ -71,6 +71,7 @@ def get_conn():
 
 DB_NAME = 'classroom.db'
 SESSION_DURATION_MINUTES = 30
+ALLOWED_STATUSES = {'present', 'absent', 'late', 'excused'}
 
 def init_db():
     conn = get_conn()
@@ -418,6 +419,20 @@ def delete_user(user_id):
     conn.commit()
     conn.close()
 
+def update_user_password(username, password):
+    conn = get_conn()
+    c = conn.cursor()
+    password_hash = generate_password_hash(password)
+    try:
+        c.execute("UPDATE users SET password_hash=? WHERE username=?",
+                  (password_hash, username))
+        conn.commit()
+        return c.rowcount > 0
+    except:
+        return False
+    finally:
+        conn.close()
+
 # ------- Students (with password) -------
 def add_student(student_id, name, password, class_code='', email='', status='active'):
     conn = get_conn()
@@ -690,10 +705,41 @@ def get_attendance_stats(course_code):
     total_students = c.fetchone()[0] or 0
     c.execute("SELECT COUNT(DISTINCT date) FROM attendance WHERE course_code=?", (course_code,))
     days = c.fetchone()[0] or 0
-    c.execute("SELECT COUNT(*) FROM attendance WHERE course_code=? AND status='present'", (course_code,))
-    present = c.fetchone()[0] or 0
+    c.execute("SELECT status, COUNT(*) FROM attendance WHERE course_code=? GROUP BY status", (course_code,))
+    status_counts = {row[0]: row[1] for row in c.fetchall()}
     conn.close()
-    return {'total_students': total_students, 'days': days, 'present': present}
+    return {'total_students': total_students, 'days': days,
+            'present': status_counts.get('present', 0),
+            'late': status_counts.get('late', 0),
+            'absent': status_counts.get('absent', 0),
+            'excused': status_counts.get('excused', 0)}
+
+def _attendance_rate(counts):
+    counted = counts['present'] + counts['late'] + counts['absent']
+    if counted == 0:
+        return None
+    return round((counts['present'] + counts['late']) / counted * 100)
+
+def get_student_attendance_summary(student_id):
+    conn = get_conn()
+    c = conn.cursor()
+    c.execute("SELECT course_code, status, COUNT(*) FROM attendance WHERE student_id=? GROUP BY course_code, status",
+              (student_id,))
+    rows = c.fetchall()
+    conn.close()
+    courses = {}
+    for course_code, status, count in rows:
+        if status not in ALLOWED_STATUSES:
+            continue
+        entry = courses.setdefault(course_code, {'present': 0, 'late': 0, 'absent': 0, 'excused': 0})
+        entry[status] += count
+    overall = {'present': 0, 'late': 0, 'absent': 0, 'excused': 0}
+    for entry in courses.values():
+        entry['rate'] = _attendance_rate(entry)
+        for key in overall:
+            overall[key] += entry[key]
+    overall['rate'] = _attendance_rate(overall)
+    return {'overall': overall, 'courses': courses}
 
 def create_attendance_session(course_code, date_str):
     conn = get_conn()

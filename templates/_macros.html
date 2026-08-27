@@ -1,0 +1,5 @@
+{% macro status_badge(status) %}
+{% set map = {'present': 'success', 'late': 'warning', 'absent': 'danger', 'excused': 'info'} %}
+{% set cls = map.get(status, 'secondary') %}
+<span class="badge rounded-pill text-bg-{{ cls }}">{{ status|capitalize }}</span>
+{% endmacro %}

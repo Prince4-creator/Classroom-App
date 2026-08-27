@@ -344,6 +344,49 @@ def student_login():
         flash('Invalid student ID or password', 'error')
     return render_template('student_login.html', next_url=next_url)
 
+@app.route('/change_password', methods=['GET', 'POST'])
+def change_password():
+    if 'user' not in session:
+        return redirect(url_for('login'))
+    if request.method == 'POST':
+        current = request.form.get('current_password', '')
+        new = request.form.get('new_password', '')
+        confirm = request.form.get('confirm_password', '')
+        if not verify_user(session['user'], current):
+            flash('Current password is incorrect', 'error')
+        elif len(new) < 8:
+            flash('New password must be at least 8 characters', 'error')
+        elif new != confirm:
+            flash('New passwords do not match', 'error')
+        elif update_user_password(session['user'], new):
+            log_auth_event(session['user'], session.get('role', 'staff'), 'password_changed', True, request.remote_addr)
+            flash('Password updated successfully', 'success')
+            return redirect(url_for('admin_panel' if session.get('role') == 'admin' else 'dashboard'))
+        else:
+            flash('Could not update password. Please try again.', 'error')
+    return render_template('change_password.html')
+
+@app.route('/student/change_password', methods=['GET', 'POST'])
+def student_change_password():
+    if 'student_id' not in session:
+        return redirect(url_for('student_login'))
+    if request.method == 'POST':
+        current = request.form.get('current_password', '')
+        new = request.form.get('new_password', '')
+        confirm = request.form.get('confirm_password', '')
+        if not verify_student(session['student_id'], current):
+            flash('Current password is incorrect', 'error')
+        elif len(new) < 8:
+            flash('New password must be at least 8 characters', 'error')
+        elif new != confirm:
+            flash('New passwords do not match', 'error')
+        elif update_student_password(session['student_id'], new):
+            flash('Password updated successfully', 'success')
+            return redirect(url_for('student_dashboard'))
+        else:
+            flash('Could not update password. Please try again.', 'error')
+    return render_template('change_password.html')
+
 # Forgot-password functionality removed per user request.
 
 @app.route('/student/dashboard')
@@ -356,9 +399,11 @@ def student_dashboard():
         return redirect(url_for('student_login'))
     announcements = get_announcements(student['class_code'])
     my_attendance = get_attendance_for_student(session['student_id'])
+    att_summary = get_student_attendance_summary(session['student_id'])
     assignment_count = len([a for a in announcements if a['announcement_type'] in ('assignment', 'exercise')])
     announcement_count = len(announcements)
     return render_template('student_dashboard.html', student=student, announcements=announcements, my_attendance=my_attendance,
+                           att_summary=att_summary,
                            assignment_count=assignment_count, announcement_count=announcement_count)
 
 @app.route('/student/assignments')
@@ -479,7 +524,9 @@ def student_view_attendance():
         return render_template('student_attendance_courses.html', courses=courses)
     selected_date = request.args.get('date', datetime.now().strftime('%Y-%m-%d'))
     records = get_attendance_by_date_and_course(selected_date, course_code)
-    return render_template('student_view_attendance.html', course_code=course_code, selected_date=selected_date, records=records)
+    att_summary = get_student_attendance_summary(session['student_id'])
+    return render_template('student_view_attendance.html', course_code=course_code, selected_date=selected_date,
+                           records=records, att_summary=att_summary)
 
 @app.route('/logout')
 def logout():
@@ -612,8 +659,11 @@ def manage_attendance():
 def update_attendance_status_route():
     record_id = request.form['record_id']
     status = request.form['status']
-    update_attendance_status(record_id, status)
-    flash('Status updated', 'success')
+    if status not in ALLOWED_STATUSES:
+        flash('Invalid attendance status', 'error')
+    else:
+        update_attendance_status(record_id, status)
+        flash('Status updated', 'success')
     return redirect(url_for('manage_attendance', course=request.form['course_code'], date=request.form['date']))
 
 @app.route('/export_attendance')
@@ -817,7 +867,9 @@ def admin_announcements():
         return redirect(url_for('admin_announcements'))
     announcements = get_announcements()
     courses = get_all_courses()
-    return render_template('admin_announcements.html', announcements=announcements, courses=courses)
+    smtp_configured = bool(SMTP_SERVER and SMTP_USERNAME and SMTP_PASSWORD)
+    return render_template('admin_announcements.html', announcements=announcements, courses=courses,
+                           smtp_configured=smtp_configured)
 
 @app.route('/admin/announcements/delete', methods=['POST'])
 def admin_delete_announcement():

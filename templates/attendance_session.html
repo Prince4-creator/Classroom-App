@@ -5,21 +5,16 @@
     <div class="col-xl-6 col-lg-8">
         <div class="app-card p-4">
             <h2 class="h4 mb-3">Attendance Session</h2>
-            {% with messages = get_flashed_messages(with_categories=true) %}
-                {% for cat, msg in messages %}
-                    <div class="alert alert-{{ 'danger' if cat=='error' else 'success' }}">{{ msg }}</div>
-                {% endfor %}
-            {% endwith %}
             <p class="text-muted">Create a session token for students to scan or paste when marking attendance.</p>
             <div class="row g-3 mb-4">
                 <div class="col-sm-6">
-                    <div class="border rounded-3 p-3" style="background: rgba(255,255,255,.04);">
+                    <div class="border rounded-3 p-3" style="background: var(--bg);">
                         <div class="small text-muted">Course</div>
                         <strong>{{ course_code }}</strong>
                     </div>
                 </div>
                 <div class="col-sm-6">
-                    <div class="border rounded-3 p-3" style="background: rgba(255,255,255,.04);">
+                    <div class="border rounded-3 p-3" style="background: var(--bg);">
                         <div class="small text-muted">Date</div>
                         <strong>{{ selected_date }}</strong>
                     </div>
@@ -63,8 +58,10 @@
         </div>
     </div>
 </div>
+{% endblock %}
+{% block scripts %}
 {% if token %}
-<script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/qrcodejs@1.0.0/qrcode.min.js"></script>
 <script>
     new QRCode(document.getElementById('qrcode'), {
         text: '{{ qr_text }}',

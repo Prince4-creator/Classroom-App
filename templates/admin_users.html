@@ -43,13 +43,13 @@
         <div class="app-card p-4">
             <h2 class="h5 mb-3">User Accounts</h2>
             <div class="table-responsive">
-                <table class="table table-borderless text-white align-middle mb-0">
+                <table class="table table-borderless align-middle mb-0">
                     <thead>
                         <tr class="text-muted small text-uppercase"><th>ID</th><th>Username</th><th>Role</th><th>Action</th></tr>
                     </thead>
                     <tbody>
                         {% for u in users %}
-                        <tr style="border-bottom:1px solid rgba(255,255,255,.08);">
+                        <tr style="border-bottom:1px solid var(--border);">
                             <td>{{ u.id }}</td>
                             <td>{{ u.username }}</td>
                             <td>{{ u.role }}</td>

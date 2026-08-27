@@ -50,13 +50,13 @@
             <h2 class="h5 mb-3">Pending Registrations</h2>
             {% if pending_students %}
             <div class="table-responsive">
-                <table class="table table-borderless text-white align-middle mb-0">
+                <table class="table table-borderless align-middle mb-0">
                     <thead>
                         <tr class="text-muted small text-uppercase"><th>ID</th><th>Name</th><th>Course</th><th>Email</th><th>Actions</th></tr>
                     </thead>
                     <tbody>
                         {% for s in pending_students %}
-                        <tr style="border-bottom:1px solid rgba(255,255,255,.08);">
+                        <tr style="border-bottom:1px solid var(--border);">
                             <td>{{ s.student_id }}</td>
                             <td>{{ s.name }}</td>
                             <td>{{ s.class_code }}</td>
@@ -87,19 +87,19 @@
         <div class="app-card p-4">
             <h2 class="h5 mb-3">Registered Students</h2>
             <div class="table-responsive">
-                <table class="table table-borderless text-white align-middle mb-0">
+                <table class="table table-borderless align-middle mb-0">
                     <thead>
                         <tr class="text-muted small text-uppercase"><th>ID</th><th>Name</th><th>Course</th><th>Email</th><th>Status</th><th>Actions</th></tr>
                     </thead>
                     <tbody>
                         {% for s in students %}
-                        <tr style="border-bottom:1px solid rgba(255,255,255,.08);">
+                        <tr style="border-bottom:1px solid var(--border);">
                             <td>{{ s.student_id }}</td>
                             <td>{{ s.name }}</td>
                             <td>{{ s.class_code }}</td>
                             <td>{{ s.email or '—' }}</td>
                             <td>
-                                <span class="badge rounded-pill" style="background: rgba(34,211,238,.12); color: #22d3ee;">{{ s.status|capitalize }}</span>
+                                <span class="badge rounded-pill badge-soft">{{ s.status|capitalize }}</span>
                             </td>
                             <td>
                                 <a href="/admin/students/edit?student_id={{ s.student_id }}" class="btn btn-sm btn-outline-secondary me-2">Edit</a>

@@ -45,6 +45,7 @@
                                 <option value="present" {% if rec.status=='present' %}selected{% endif %}>Present</option>
                                 <option value="absent" {% if rec.status=='absent' %}selected{% endif %}>Absent</option>
                                 <option value="late" {% if rec.status=='late' %}selected{% endif %}>Late</option>
+                                <option value="excused" {% if rec.status=='excused' %}selected{% endif %}>Excused</option>
                             </select>
                             <button type="submit" class="btn btn-sm btn-outline-primary">Update</button>
                         </form>

@@ -1,4 +1,5 @@
 {% extends 'base.html' %}
+{% from '_macros.html' import status_badge %}
 {% block title %}Student Dashboard - OneMillionCoders{% endblock %}
 {% block content %}
 <div class="row gy-4">
@@ -32,7 +33,7 @@
             {% if announcements %}
             <div class="list-group">
                 {% for a in announcements %}
-                <div class="list-group-item mb-3 {% if a.announcement_type == 'assignment' %}assignment-card{% elif a.announcement_type == 'exercise' %}exercise-card{% else %}announcement-card{% endif %}" style="background: rgba(255,255,255,.02); border: 1px solid rgba(255,255,255,.08);">
+                <div class="list-group-item mb-3 rounded-3 {% if a.announcement_type == 'assignment' %}assignment-card{% elif a.announcement_type == 'exercise' %}exercise-card{% else %}announcement-card{% endif %}">
                     <div class="d-flex justify-content-between align-items-start mb-2">
                         <div>
                             <h3 class="h6 mb-1"><span class="badge {% if a.announcement_type == 'assignment' %}badge-assignment{% elif a.announcement_type == 'exercise' %}badge-exercise{% else %}badge-announcement{% endif %}"> {{ a.announcement_type|capitalize }} </span> {{ a.title }}</h3>
@@ -60,20 +61,36 @@
     </div>
 
     <div class="col-lg-4">
-        <div class="app-card p-4 mb-4 h-100">
+        <div class="app-card p-4 mb-4 text-center">
+            <h2 class="h5 mb-3">Attendance Rate</h2>
+            {% if att_summary.overall.rate is not none %}
+            {% set rate = att_summary.overall.rate %}
+            {% set rate_cls = 'text-success' if rate >= 80 else ('text-warning' if rate >= 60 else 'text-danger') %}
+            <div class="display-4 fw-bold {{ rate_cls }}">{{ rate }}%</div>
+            <p class="small text-muted mb-2">{{ att_summary.overall.present }} present • {{ att_summary.overall.late }} late • {{ att_summary.overall.absent }} absent{% if att_summary.overall.excused %} • {{ att_summary.overall.excused }} excused{% endif %}</p>
+            {% else %}
+            <div class="display-6 fw-bold text-muted">N/A</div>
+            <p class="small text-muted mb-2">No attendance records yet.</p>
+            {% endif %}
+        </div>
+        <div class="app-card p-4 mb-4">
             <h2 class="h5 mb-3">Quick Actions</h2>
             <div class="d-grid gap-2">
-                <a href="/student/mark_attendance" class="btn btn-info">✅ Mark Attendance</a>
-                <a href="/student/view_attendance" class="btn btn-warning">👀 View Attendance</a>
-                <a href="/student/assignments" class="btn btn-primary">📌 Assignments</a>
+                <a href="/student/mark_attendance" class="btn app-btn">✅ Mark Attendance</a>
+                <a href="/student/view_attendance" class="btn app-btn">👀 View Attendance</a>
+                <a href="/student/assignments" class="btn app-btn">📌 Assignments</a>
+                <a href="/student/change_password" class="btn btn-outline-light">🔑 Change Password</a>
             </div>
         </div>
-        <div class="app-card p-4 h-100">
-            <h2 class="h5 mb-3">Attendance Summary</h2>
+        <div class="app-card p-4">
+            <h2 class="h5 mb-3">Recent Attendance</h2>
             {% if my_attendance %}
             <ul class="list-unstyled mb-0">
                 {% for att in my_attendance[:5] %}
-                <li class="mb-2"><strong>{{ att[0] }}</strong> — {{ att[1] }} {{ att[2] }}</li>
+                <li class="mb-2 d-flex justify-content-between align-items-center">
+                    <span><strong>{{ att[0] }}</strong> <span class="small text-muted">{{ att[1] }} {{ att[2] }}</span></span>
+                    {{ status_badge(att[3]) }}
+                </li>
                 {% endfor %}
             </ul>
             {% else %}
@@ -83,4 +100,3 @@
     </div>
 </div>
 {% endblock %}
-"}

@@ -30,6 +30,7 @@
         </div>
         <div class="app-card p-4 mt-4">
             <h2 class="h5 mb-3">Active courses</h2>
+            {% if courses %}
             <ul class="list-group list-group-flush">
                 {% for c in courses %}
                 <li class="list-group-item d-flex justify-content-between align-items-center">
@@ -38,6 +39,9 @@
                 </li>
                 {% endfor %}
             </ul>
+            {% else %}
+            <p class="text-muted mb-0">No courses yet. Admins can add courses from the admin panel.</p>
+            {% endif %}
         </div>
     </div>
     <div class="col-lg-8">
@@ -48,7 +52,7 @@
             </div>
             {% if announcements %}
                 {% for a in announcements %}
-                <div class="mb-3 p-3 rounded-3 {% if a.announcement_type == 'assignment' %}assignment-card{% elif a.announcement_type == 'exercise' %}exercise-card{% else %}announcement-card{% endif %}" style="background: rgba(255,255,255,.03); border: 1px solid rgba(255,255,255,.08);">
+                <div class="mb-3 p-3 rounded-3 bg-white border {% if a.announcement_type == 'assignment' %}assignment-card{% elif a.announcement_type == 'exercise' %}exercise-card{% else %}announcement-card{% endif %}">
                     <div class="d-flex justify-content-between align-items-start mb-2">
                         <div>
                             <h3 class="h6 mb-1">[{{ a.announcement_type|capitalize }}] {{ a.title }}</h3>

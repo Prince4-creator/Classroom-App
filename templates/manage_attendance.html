@@ -52,7 +52,10 @@
             <p class="mb-2">Total students: <strong>{{ stats.total_students }}</strong></p>
             <p class="mb-2">Recorded days: <strong>{{ stats.days }}</strong></p>
             <p class="mb-2">Checked in so far: <strong>{{ records|length }}</strong></p>
-            <p class="mb-0">Total presents: <strong>{{ stats.present }}</strong></p>
+            <p class="mb-2">Present: <strong class="text-success">{{ stats.present }}</strong></p>
+            <p class="mb-2">Late: <strong class="text-warning">{{ stats.late }}</strong></p>
+            <p class="mb-2">Absent: <strong class="text-danger">{{ stats.absent }}</strong></p>
+            <p class="mb-0">Excused: <strong class="text-info">{{ stats.excused }}</strong></p>
         </div>
         {% if token %}
         <div class="app-card p-4 mt-4">
@@ -71,13 +74,13 @@
                 <a href="/export_attendance?course={{ course_code }}&date={{ selected_date }}" class="btn btn-outline-light btn-sm">Export CSV</a>
             </div>
             <div class="table-responsive">
-                <table class="table table-borderless align-middle text-white">
+                <table class="table table-borderless align-middle">
                     <thead>
                         <tr class="text-muted small text-uppercase"><th>Student ID</th><th>Name</th><th>Course</th><th>Time</th><th>Location</th><th>Status</th><th>Action</th></tr>
                     </thead>
                     <tbody>
                         {% for rec in records %}
-                        <tr style="border-bottom:1px solid rgba(255,255,255,.08);">
+                        <tr style="border-bottom:1px solid var(--border);">
                             <td>{{ rec.student_id }}</td>
                             <td>{{ rec.name }}</td>
                             <td><span class="badge badge-soft">{{ rec.course_code or 'N/A' }}{% if rec.course_name %} - {{ rec.course_name }}{% endif %}</span></td>
@@ -98,6 +101,7 @@
                                         <option value="present" {% if rec.status=='present' %}selected{% endif %}>Present</option>
                                         <option value="absent" {% if rec.status=='absent' %}selected{% endif %}>Absent</option>
                                         <option value="late" {% if rec.status=='late' %}selected{% endif %}>Late</option>
+                                        <option value="excused" {% if rec.status=='excused' %}selected{% endif %}>Excused</option>
                                     </select>
                             </td>
                             <td><button type="submit" class="btn btn-sm btn-outline-light">Update</button></form></td>

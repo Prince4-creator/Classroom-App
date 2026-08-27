@@ -5,17 +5,18 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>{% block title %}OneMillionCoders Classroom Hub{% endblock %}</title>
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.2.3/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css" rel="stylesheet">
     <style>
         :root {
-            --bg-start: #030514;
-            --bg-end: #081424;
-            --panel: rgba(10, 16, 34, 0.88);
-            --text: #edf4ff;
-            --muted: #9bb9d8;
+            --bg: #f5f7fa;
+            --surface: #ffffff;
+            --border: #e3e8ef;
+            --text: #1e293b;
+            --muted: #64748b;
             --accent: #7c3aed;
-            --accent-2: #22d3ee;
-            --accent-3: #f59e0b;
-            --border: rgba(124, 58, 237, .20);
+            --accent-dark: #6d28d9;
+            --accent-soft: rgba(124, 58, 237, .08);
+            --sidebar-w: 248px;
         }
         * { box-sizing: border-box; }
         body {
@@ -23,133 +24,280 @@
             margin: 0;
             font-family: Inter, system-ui, -apple-system, BlinkMacSystemFont, sans-serif;
             color: var(--text);
-            background: radial-gradient(circle at top left, rgba(34,211,238,.16), transparent 25%),
-                        radial-gradient(circle at bottom right, rgba(124,58,237,.16), transparent 28%),
-                        linear-gradient(180deg, var(--bg-start) 0%, #08101f 42%, var(--bg-end) 100%);
+            background: var(--bg);
         }
-        nav.navbar {
-            background: rgba(4, 8, 24, 0.92);
-            border-bottom: 1px solid rgba(124, 58, 237, .16);
-            backdrop-filter: blur(16px);
+        a { color: var(--accent); }
+        a:hover { color: var(--accent-dark); }
+        .text-muted { color: var(--muted) !important; }
+
+        /* ---------- Top bar (guests + mobile) ---------- */
+        .app-topbar {
+            position: sticky;
+            top: 0;
+            z-index: 1030;
+            background: var(--surface);
+            border-bottom: 1px solid var(--border);
         }
-        .navbar-brand {
-            font-weight: 700;
-            letter-spacing: 1px;
-        }
+        .navbar-brand { font-weight: 700; letter-spacing: .2px; color: var(--text); }
+        .navbar-brand:hover { color: var(--text); }
         .brand-logo {
-            height: 36px;
-            width: 36px;
-            margin-right: 0.8rem;
-            border-radius: 0.45rem;
-            box-shadow: 0 0 18px rgba(124, 58, 237, 0.25);
+            height: 34px;
+            width: 34px;
+            margin-right: .65rem;
+            border-radius: .45rem;
             flex-shrink: 0;
         }
-        .brand-logo svg, .brand-logo img {
-            width: 100%;
-            height: 100%;
-            display: block;
-            object-fit: cover;
+        .brand-logo svg, .brand-logo img { width: 100%; height: 100%; display: block; object-fit: cover; }
+
+        /* ---------- Sidebar (desktop) ---------- */
+        .app-sidebar {
+            display: none;
+            position: fixed;
+            top: 0; left: 0; bottom: 0;
+            width: var(--sidebar-w);
+            background: var(--surface);
+            border-right: 1px solid var(--border);
+            padding: 1rem .75rem;
+            z-index: 1040;
+            flex-direction: column;
+            overflow-y: auto;
         }
+        .sidebar-brand {
+            display: flex;
+            align-items: center;
+            font-weight: 700;
+            color: var(--text);
+            text-decoration: none;
+            padding: .25rem .5rem 1rem;
+        }
+        .side-section {
+            font-size: .7rem;
+            font-weight: 700;
+            letter-spacing: .08em;
+            text-transform: uppercase;
+            color: var(--muted);
+            padding: .9rem .75rem .35rem;
+        }
+        .side-link {
+            display: flex;
+            align-items: center;
+            gap: .65rem;
+            padding: .55rem .75rem;
+            border-radius: .5rem;
+            color: var(--text);
+            text-decoration: none;
+            font-weight: 500;
+            font-size: .925rem;
+        }
+        .side-link i { font-size: 1.05rem; color: var(--muted); }
+        .side-link:hover { background: var(--bg); color: var(--text); }
+        .side-link.active { background: var(--accent-soft); color: var(--accent-dark); font-weight: 600; }
+        .side-link.active i { color: var(--accent); }
+        .sidebar-footer { margin-top: auto; padding-top: 1rem; border-top: 1px solid var(--border); }
+        .user-chip {
+            display: flex;
+            align-items: center;
+            gap: .6rem;
+            padding: .5rem .5rem .75rem;
+        }
+        .user-avatar {
+            width: 36px; height: 36px;
+            border-radius: 50%;
+            background: var(--accent-soft);
+            color: var(--accent-dark);
+            display: flex; align-items: center; justify-content: center;
+            font-weight: 700;
+            flex-shrink: 0;
+        }
+
+        /* ---------- Bottom nav (mobile) ---------- */
+        .bottom-nav {
+            position: fixed;
+            left: 0; right: 0; bottom: 0;
+            z-index: 1030;
+            display: flex;
+            background: var(--surface);
+            border-top: 1px solid var(--border);
+            padding-bottom: env(safe-area-inset-bottom);
+        }
+        .bottom-nav a {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: .15rem;
+            padding: .5rem 0 .45rem;
+            font-size: .68rem;
+            font-weight: 600;
+            color: var(--muted);
+            text-decoration: none;
+        }
+        .bottom-nav a i { font-size: 1.25rem; }
+        .bottom-nav a.active { color: var(--accent); }
+
+        /* ---------- Layout ---------- */
+        @media (min-width: 992px) {
+            body.shell { padding-left: var(--sidebar-w); }
+            .app-sidebar { display: flex; }
+            .app-topbar.shell-bar { display: none; }
+            .bottom-nav { display: none; }
+        }
+        @media (max-width: 991.98px) {
+            main.app-main { padding-bottom: 5rem; }
+            footer { padding-bottom: 4.5rem; }
+        }
+        @media print {
+            .app-sidebar, .bottom-nav, .app-topbar { display: none !important; }
+            body.shell { padding-left: 0 !important; }
+        }
+
+        /* ---------- Components ---------- */
         .app-card {
-            background: var(--panel);
+            background: var(--surface);
             border: 1px solid var(--border);
-            border-radius: 1.15rem;
-            box-shadow: 0 18px 45px rgba(0,0,0,.22);
+            border-radius: .9rem;
+            box-shadow: 0 1px 3px rgba(15, 23, 42, .06);
         }
         .app-card .card-header {
             background: transparent;
-            border-bottom: 1px solid rgba(255,255,255,.08);
+            border-bottom: 1px solid var(--border);
         }
         .app-btn {
-            background: linear-gradient(135deg, var(--accent), var(--accent-2));
+            background: var(--accent);
             color: #fff !important;
-            font-weight: 700;
+            font-weight: 600;
             border: none;
-            box-shadow: 0 16px 40px rgba(34,211,238,.24);
-            transition: transform 0.2s ease, opacity 0.2s ease;
-            text-shadow: 0 1px 2px rgba(0,0,0,.24);
+            transition: background .15s ease;
         }
-        .app-btn:hover {
-            opacity: .96;
-            transform: translateY(-1px);
-        }
-        .badge-soft {
-            background: rgba(34,211,238,.12);
+        .app-btn:hover, .app-btn:focus { background: var(--accent-dark); color: #fff; }
+        .btn-outline-light {
             color: var(--text);
+            border-color: var(--border);
+        }
+        .btn-outline-light:hover { background: var(--bg); color: var(--text); border-color: var(--border); }
+        .badge-soft {
+            background: var(--accent-soft);
+            color: var(--accent-dark);
         }
         .list-group-item {
-            background: rgba(255,255,255,.03);
-            border-color: rgba(255,255,255,.08);
+            background: var(--surface);
+            border-color: var(--border);
             color: var(--text);
         }
-        .form-control, .form-select {
-            background: rgba(255,255,255,.05);
-            border: 1px solid rgba(255,255,255,.12);
-            color: var(--text);
-        }
-        .form-control:focus, .form-select:focus {
-            border-color: rgba(124,58,237,.75);
-            box-shadow: 0 0 0 0.15rem rgba(124,58,237,.15);
-        }
-        /* Make select dropdown options vivid and readable across browsers */
-        .form-select option {
-            color: var(--text);
-            background: rgba(0,0,0,0.92);
-        }
-        .form-select optgroup {
-            color: var(--muted);
-            background: rgba(0,0,0,0.92);
-        }
-        a, .text-info { color: #7c3aed !important; }
         .badge-announcement {
-            background: rgba(34,211,238,.18);
-            color: #22d3ee;
-            border: 1px solid rgba(34,211,238,.35);
+            background: rgba(37, 99, 235, .10);
+            color: #1d4ed8;
         }
         .badge-assignment {
-            background: rgba(251,191,36,.18);
-            color: #fbbf24;
-            border: 1px solid rgba(251,191,36,.35);
+            background: rgba(217, 119, 6, .12);
+            color: #b45309;
         }
         .badge-exercise {
-            background: rgba(236,72,153,.18);
-            color: #ec4899;
-            border: 1px solid rgba(236,72,153,.35);
+            background: rgba(219, 39, 119, .10);
+            color: #be185d;
         }
-        .announcement-card { border-color: rgba(34,211,238,.18); }
-        .assignment-card { border-color: rgba(251,191,36,.18); }
-        .exercise-card { border-color: rgba(236,72,153,.18); }
+        .announcement-card { border-color: rgba(37, 99, 235, .35); }
+        .assignment-card { border-color: rgba(217, 119, 6, .4); }
+        .exercise-card { border-color: rgba(219, 39, 119, .35); }
+        .table { color: var(--text); }
         footer { color: var(--muted); }
     </style>
 </head>
-<body>
-<nav class="navbar navbar-expand-lg">
+<body class="{% if session.user or session.student_id %}shell{% endif %}">
+
+{% macro side_link(href, icon, label) %}
+<a href="{{ href }}" class="side-link {% if request.path == href %}active{% endif %}">
+    <i class="bi {{ icon }}"></i> {{ label }}
+</a>
+{% endmacro %}
+
+{% macro bottom_link(href, icon, label) %}
+<a href="{{ href }}" class="{% if request.path == href %}active{% endif %}">
+    <i class="bi {{ icon }}"></i> {{ label }}
+</a>
+{% endmacro %}
+
+{% if session.user or session.student_id %}
+{# ---------- Logged-in shell ---------- #}
+<aside class="app-sidebar">
+    <a class="sidebar-brand" href="/">
+        <span class="brand-logo">
+            <img src="https://cdn.onemillioncoders.gov.gh/omcp-asset/images/one-million-coders-logo.png" alt="OneMillionCoders logo">
+        </span>
+        Classroom Hub
+    </a>
+    {% if session.user %}
+    <div class="side-section">Menu</div>
+    {{ side_link('/dashboard', 'bi-house-door', 'Dashboard') }}
+    {{ side_link('/manage_attendance', 'bi-calendar-check', 'Attendance') }}
+    {{ side_link('/attendance/session', 'bi-qr-code-scan', 'QR Session') }}
+    {{ side_link('/poll', 'bi-bar-chart', 'Polls') }}
+    {% if session.role == 'admin' %}
+    <div class="side-section">Admin</div>
+    {{ side_link('/admin', 'bi-speedometer2', 'Admin Panel') }}
+    {{ side_link('/admin/announcements', 'bi-megaphone', 'Announcements') }}
+    {{ side_link('/admin/students', 'bi-people', 'Students') }}
+    {{ side_link('/admin/courses', 'bi-journal-bookmark', 'Courses') }}
+    {{ side_link('/admin/users', 'bi-person-gear', 'Users') }}
+    {{ side_link('/admin/email_test', 'bi-envelope', 'Email Test') }}
+    {% endif %}
+    {% else %}
+    <div class="side-section">Menu</div>
+    {{ side_link('/student/dashboard', 'bi-house-door', 'Dashboard') }}
+    {{ side_link('/student/mark_attendance', 'bi-qr-code-scan', 'Mark Attendance') }}
+    {{ side_link('/student/view_attendance', 'bi-calendar-check', 'My Attendance') }}
+    {{ side_link('/student/assignments', 'bi-journal-text', 'Assignments') }}
+    {% endif %}
+    <div class="sidebar-footer">
+        <div class="user-chip">
+            <span class="user-avatar">{{ (session.user or session.get('student_name', 'S'))[:1]|upper }}</span>
+            <div class="small lh-sm">
+                <div class="fw-semibold">{{ (session.user or session.get('student_name', 'Student'))|capitalize }}</div>
+                <div class="text-muted">{{ (session.role or 'student')|capitalize }}</div>
+            </div>
+        </div>
+        {{ side_link('/change_password' if session.user else '/student/change_password', 'bi-shield-lock', 'Change Password') }}
+        {{ side_link('/logout', 'bi-box-arrow-right', 'Logout') }}
+    </div>
+</aside>
+
+<nav class="app-topbar shell-bar navbar">
+    <div class="container-fluid">
+        <a class="navbar-brand d-flex align-items-center" href="/">
+            <span class="brand-logo">
+                <img src="https://cdn.onemillioncoders.gov.gh/omcp-asset/images/one-million-coders-logo.png" alt="OneMillionCoders logo">
+            </span>
+            Classroom Hub
+        </a>
+        <a href="/logout" class="btn btn-sm btn-outline-light">Logout</a>
+    </div>
+</nav>
+{% else %}
+{# ---------- Guest shell ---------- #}
+<nav class="app-topbar navbar">
     <div class="container">
         <a class="navbar-brand d-flex align-items-center" href="/">
             <span class="brand-logo">
-                <img src="https://cdn.onemillioncoders.gov.gh/omcp-asset/images/one-million-coders-logo.png" alt="OneMillionCoders logo" class="brand-img">
+                <img src="https://cdn.onemillioncoders.gov.gh/omcp-asset/images/one-million-coders-logo.png" alt="OneMillionCoders logo">
             </span>
             OneMillionCoders Classroom Hub
         </a>
-        {% if session.user %}
-        <div class="d-flex align-items-center gap-3 ms-auto text-white">
-            <span class="small">{{ session.user|capitalize }} • {{ session.role|capitalize }}</span>
-            <a href="/logout" class="btn btn-sm app-btn">Logout</a>
-        </div>
-        {% endif %}
+        <a href="/login_choice" class="btn btn-sm app-btn">Login</a>
     </div>
 </nav>
-<main class="container py-4">
-        {# Flash messages #}
+{% endif %}
+
+<main class="container app-main py-4">
+        {# Flash messages as auto-dismissing toasts #}
         {% with messages = get_flashed_messages(with_categories=true) %}
             {% if messages %}
-                <div class="mb-3">
+                <div class="toast-container position-fixed top-0 end-0 p-3" style="z-index: 1080;">
                     {% for category, msg in messages %}
                         {% set cls = 'danger' if category == 'error' else category %}
-                        <div class="container">
-                            <div class="alert alert-{{ cls }} alert-dismissible fade show" role="alert">
-                                {{ msg }}
-                                <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+                        <div class="toast align-items-center text-bg-{{ cls }} border-0" role="alert" aria-live="assertive" aria-atomic="true" data-bs-delay="5000">
+                            <div class="d-flex">
+                                <div class="toast-body">{{ msg }}</div>
+                                <button type="button" class="btn-close btn-close-white me-2 m-auto" data-bs-dismiss="toast" aria-label="Close"></button>
                             </div>
                         </div>
                     {% endfor %}
@@ -159,7 +307,36 @@
 
         {% block content %}{% endblock %}
 </main>
+
+{% if session.user or session.student_id %}
+<nav class="bottom-nav">
+    {% if session.user %}
+    {{ bottom_link('/dashboard', 'bi-house-door', 'Home') }}
+    {{ bottom_link('/manage_attendance', 'bi-calendar-check', 'Attendance') }}
+    {% if session.role == 'admin' %}
+    {{ bottom_link('/admin/announcements', 'bi-megaphone', 'Posts') }}
+    {{ bottom_link('/admin', 'bi-speedometer2', 'Admin') }}
+    {% else %}
+    {{ bottom_link('/poll', 'bi-bar-chart', 'Polls') }}
+    {% endif %}
+    {% else %}
+    {{ bottom_link('/student/dashboard', 'bi-house-door', 'Home') }}
+    {{ bottom_link('/student/mark_attendance', 'bi-qr-code-scan', 'Mark') }}
+    {{ bottom_link('/student/view_attendance', 'bi-calendar-check', 'History') }}
+    {{ bottom_link('/student/assignments', 'bi-journal-text', 'Work') }}
+    {% endif %}
+</nav>
+{% endif %}
+
 <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.2.3/dist/js/bootstrap.bundle.min.js"></script>
+<script>
+    document.addEventListener('DOMContentLoaded', function () {
+        document.querySelectorAll('.toast').forEach(function (el) {
+            new bootstrap.Toast(el).show();
+        });
+    });
+</script>
+{% block scripts %}{% endblock %}
 <footer class="container text-center pb-4">
     <span class="small">Attendance system • built for classroom use</span>
 </footer>

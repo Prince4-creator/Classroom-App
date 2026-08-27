@@ -3,27 +3,22 @@
 {% block content %}
 <div class="d-flex justify-content-center align-items-center min-vh-75">
     <div style="max-width: 420px; width: 100%;">
-        <div class="app-card p-4 border border-white border-opacity-10">
+        <div class="app-card p-4">
             <div class="text-center mb-4">
-                <img src="https://onemillioncoders.gov.gh/_next/image?url=https%3A%2F%2Fcdn.onemillioncoders.gov.gh%2Fomcp-asset%2Fimages%2Fone-million-coders-logo.png&w=128&q=75" alt="OneMillionCoders logo" style="width:82px;height:82px;object-fit:cover;border-radius:16px;box-shadow:0 12px 30px rgba(0,0,0,.2);" class="mb-3">
-                <h2 class="h3 mb-2" style="color: #e5f7ff; text-shadow: 0 0 14px rgba(124,58,237,.45);">Student Login</h2>
+                <img src="https://onemillioncoders.gov.gh/_next/image?url=https%3A%2F%2Fcdn.onemillioncoders.gov.gh%2Fomcp-asset%2Fimages%2Fone-million-coders-logo.png&w=128&q=75" alt="OneMillionCoders logo" style="width:82px;height:82px;object-fit:cover;border-radius:16px;box-shadow:0 6px 16px rgba(15,23,42,.12);" class="mb-3">
+                <h2 class="h3 mb-2">Student Login</h2>
                 <p class="small text-muted">Sign in to access your dashboard</p>
             </div>
-            {% with messages = get_flashed_messages(with_categories=true) %}
-                {% for cat, msg in messages %}
-                    <div class="alert alert-{{ 'danger' if cat=='error' else 'success' }}">{{ msg }}</div>
-                {% endfor %}
-            {% endwith %}
             <form method="POST">
                 {% if next_url %}
                     <input type="hidden" name="next" value="{{ next_url }}">
                 {% endif %}
                 <div class="mb-3">
-                    <label class="form-label text-white fw-bold">Student ID</label>
+                    <label class="form-label fw-bold">Student ID</label>
                     <input type="text" name="student_id" class="form-control" placeholder="S001" required autofocus>
                 </div>
                 <div class="mb-3">
-                    <label class="form-label text-white fw-bold">Password</label>
+                    <label class="form-label fw-bold">Password</label>
                     <input type="password" name="password" class="form-control" placeholder="Password" required>
                 </div>
                 <div class="d-grid mb-3">
