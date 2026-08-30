@@ -7,6 +7,7 @@
             <h2 class="h4 mb-3">Mark Attendance</h2>
             <p class="text-muted mb-4">Enter student ID and select the course to mark attendance manually.</p>
             <form method="POST">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>
                 <div class="mb-3">
                     <label class="form-label">Student ID</label>
                     <input type="text" name="student_id" class="form-control" placeholder="Enter student ID" required>

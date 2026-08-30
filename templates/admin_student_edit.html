@@ -12,6 +12,7 @@
                 <span class="badge badge-soft align-self-center">Admin only</span>
             </div>
             <form method="POST" class="row g-3">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>
                 <input type="hidden" name="student_id" value="{{ student_id }}">
                 <div class="col-12">
                     <label class="form-label">Student ID</label>

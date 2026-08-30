@@ -14,6 +14,7 @@
 <div class="container mt-4">
     <h3>Attendance for Date:</h3>
     <form method="GET" action="/view_attendance" class="row g-3 mb-4">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>
         <div class="col-auto">
             <input type="date" name="date" value="{{ selected_date }}" class="form-control">
         </div>
@@ -40,6 +41,7 @@
                     <td>{{ rec.time }}</td>
                     <td>
                         <form method="POST" action="/change_status?date={{ selected_date }}" style="display:inline;">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>
                             <input type="hidden" name="record_id" value="{{ rec.id }}">
                             <select name="status" class="form-select form-select-sm" style="width:auto; display:inline-block;">
                                 <option value="present" {% if rec.status=='present' %}selected{% endif %}>Present</option>

@@ -8,6 +8,7 @@
         <div class="app-card p-4 mb-3">
             <h2 class="h5 mb-3">{{ course }} — {{ poll.question }}</h2>
             <form method="POST">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>
                 <input type="hidden" name="poll_id" value="{{ poll.id }}">
                 <input type="hidden" name="course_code" value="{{ course }}">
                 <div class="mb-3">

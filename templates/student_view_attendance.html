@@ -15,6 +15,7 @@
                 {% endif %}
             </div>
             <form method="GET" class="row g-2 mb-4">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>
                 <input type="hidden" name="course" value="{{ course_code }}">
                 <div class="col-auto">
                     <input type="date" name="date" value="{{ selected_date }}" class="form-control">

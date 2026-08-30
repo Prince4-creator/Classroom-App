@@ -1,9 +1,23 @@
 from flask import Flask, render_template, request, redirect, url_for, session, flash, Response, send_from_directory
+from flask_wtf.csrf import CSRFProtect
 from database import *
+from utils import (
+    validate_student_id,
+    validate_email,
+    validate_username,
+    validate_course_code,
+    validate_password,
+    validate_name,
+    check_rate_limit,
+    log_action,
+    require_student_role,
+)
 from datetime import datetime, timedelta
 import csv
 import io
 import os
+from dotenv import load_dotenv
+
 try:
     import qrcode
 except Exception:
@@ -18,6 +32,9 @@ from werkzeug.utils import secure_filename
 import traceback
 import base64
 
+# Load environment variables from .env file
+load_dotenv()
+
 SUPABASE_URL = os.environ.get('SUPABASE_URL', '').strip()
 SUPABASE_KEY = os.environ.get('SUPABASE_KEY', '').strip()
 SUPABASE_BUCKET = os.environ.get('SUPABASE_BUCKET', 'attachments').strip()
@@ -29,32 +46,29 @@ if SUPABASE_URL and SUPABASE_KEY:
     except Exception as e:
         print('Warning: Supabase client init failed:', e)
 
-# Load local .env file if present (KEY=VALUE per line)
-env_path = os.path.join(os.path.dirname(__file__), '.env')
-if os.path.exists(env_path):
-    try:
-        with open(env_path, 'r', encoding='utf-8') as ef:
-            for raw in ef:
-                line = raw.strip()
-                if not line or line.startswith('#') or '=' not in line:
-                    continue
-                k, v = line.split('=', 1)
-                k = k.strip()
-                v = v.strip().strip('"').strip("'")
-                if k and v and k not in os.environ:
-                    os.environ[k] = v
-    except Exception:
-        pass
-
 app = Flask(__name__)
-app.secret_key = os.environ.get('SECRET_KEY', 'super-secret-neon-key')
+
+# Security: SECRET_KEY must be set in production
+secret_key = os.environ.get('SECRET_KEY')
+if not secret_key:
+    if os.environ.get('FLASK_ENV') == 'production':
+        raise ValueError('CRITICAL: SECRET_KEY environment variable must be set in production!')
+    # Development mode only
+    secret_key = 'dev-insecure-key-change-in-production'
+    print('WARNING: Using development secret key. Set SECRET_KEY env var for production.')
+
+app.secret_key = secret_key
 app.config.update({
     'SESSION_COOKIE_SECURE': True,
     'SESSION_COOKIE_HTTPONLY': True,
     'SESSION_COOKIE_SAMESITE': 'Lax',
     'PERMANENT_SESSION_LIFETIME': timedelta(minutes=30),
     'SESSION_REFRESH_EACH_REQUEST': True,
+    'WTF_CSRF_ENABLED': not bool(os.environ.get('FLASK_ENV') == 'testing'),
 })
+
+# Enable CSRF protection
+csrf = CSRFProtect(app)
 
 # Initialize database (creates tables in SQLite or Postgres/Supabase)
 try:
@@ -117,6 +131,7 @@ def apply_security_headers(response):
         "default-src 'self'; "
         "script-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net; "
         "style-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net; "
+        "font-src 'self' https://cdn.jsdelivr.net; "
         "img-src 'self' https: data:;"
     )
     response.headers['X-Frame-Options'] = 'DENY'
@@ -272,8 +287,16 @@ def send_email(subject, body, recipients):
 @app.route('/login', methods=['GET', 'POST'])
 def login():
     if request.method == 'POST':
-        username = request.form['username']
-        password = request.form['password']
+        username = request.form.get('username', '').strip()
+        password = request.form.get('password', '').strip()
+        if not username or not validate_username(username):
+            flash('Invalid username format', 'error')
+            return render_template('login.html')
+        rate_key = f"staff_login:{request.remote_addr}:{username}"
+        if not check_rate_limit(rate_key, limit=5, window_seconds=900):
+            flash('Too many failed login attempts. Please try again later.', 'error')
+            log_auth_event(username, 'staff', 'staff_login_locked', False, request.remote_addr)
+            return render_template('login.html')
         role = verify_user(username, password)
         if role:
             session.clear()
@@ -283,7 +306,7 @@ def login():
             log_auth_event(username, role, 'staff_login', True, request.remote_addr)
             return redirect(url_for('dashboard'))
         else:
-            log_auth_event(request.form.get('username', ''), None, 'staff_login_failed', False, request.remote_addr)
+            log_auth_event(username, None, 'staff_login_failed', False, request.remote_addr)
             flash('Invalid credentials', 'error')
     return render_template('login.html')
 
@@ -295,12 +318,17 @@ def student_login_redirect():
 @app.route('/admin/login', methods=['GET', 'POST'])
 def admin_login():
     if request.method == 'POST':
-        username = request.form['username']
-        password = request.form['password']
+        username = request.form.get('username', '').strip()
+        password = request.form.get('password', '').strip()
         ip_address = request.remote_addr
         try:
-            if count_failed_auth_attempts(username, ip_address, minutes=15) >= 5:
-                flash('Too many failed login attempts. Try again later.', 'error')
+            if not username or not validate_username(username):
+                flash('Invalid username format', 'error')
+                log_auth_event(username, 'admin', 'admin_login_failed', False, ip_address)
+                return render_template('admin_login.html')
+            rate_key = f"admin_login:{ip_address}:{username}"
+            if not check_rate_limit(rate_key, limit=5, window_seconds=900):
+                flash('Too many failed login attempts. Please try again later.', 'error')
                 log_auth_event(username, 'admin', 'admin_login_locked', False, ip_address)
                 return render_template('admin_login.html')
             role = verify_user(username, password)
@@ -329,19 +357,37 @@ def student_login():
     # accept `next` from querystring or form so redirects survive POST
     next_url = request.values.get('next')
     if request.method == 'POST':
-        student_id = request.form['student_id'].strip()
-        password = request.form['password'].strip()
-        student_name = verify_student(student_id, password)
-        if student_name:
-            session.clear()
-            session.permanent = True
-            session['student_id'] = student_id
-            session['student_name'] = student_name
-            session['role'] = 'student'
-            if next_url and (next_url.startswith('/') or is_safe_url(next_url)):
-                return redirect(next_url)
-            return redirect(url_for('student_dashboard'))
-        flash('Invalid student ID or password', 'error')
+        try:
+            student_id = request.form.get('student_id', '').strip()
+            password = request.form.get('password', '').strip()
+            
+            if not student_id or not password:
+                flash('Student ID and password are required.', 'error')
+                return redirect(url_for('student_login', next=next_url))
+            
+            if not validate_student_id(student_id):
+                flash('Invalid student ID format.', 'error')
+                log_action('student_login_failed', student_id, 'invalid_format', False)
+                return redirect(url_for('student_login', next=next_url))
+            
+            student_name = verify_student(student_id, password)
+            if student_name:
+                session.clear()
+                session.permanent = True
+                session['student_id'] = student_id
+                session['student_name'] = student_name
+                session['role'] = 'student'
+                log_action('student_login', student_id, 'successful', True)
+                if next_url and (next_url.startswith('/') or is_safe_url(next_url)):
+                    return redirect(next_url)
+                return redirect(url_for('student_dashboard'))
+            
+            log_action('student_login_failed', student_id, 'invalid_credentials', False)
+            flash('Invalid student ID or password', 'error')
+        except Exception as e:
+            flash('An error occurred during login. Please try again.', 'error')
+            log_action('student_login_error', 'unknown', str(e), False)
+    
     return render_template('student_login.html', next_url=next_url)
 
 @app.route('/change_password', methods=['GET', 'POST'])
@@ -455,7 +501,32 @@ def student_mark_attendance():
         except (ValueError, TypeError):
             lat = None
             lon = None
-        mark_attendance(session['student_id'], course_code, date_str, time_str, latitude=lat, longitude=lon)
+        
+        # Collect fraud detection data
+        from utils import generate_device_fingerprint, check_fraud_warnings
+        device_fingerprint = generate_device_fingerprint(request)
+        student_ip = request.remote_addr
+        
+        # Check for fraud warnings
+        fraud_warnings = check_fraud_warnings(session['student_id'], course_code, date_str, lat, lon, student_ip)
+        
+        if fraud_warnings:
+            # If there are warnings, require confirmation
+            confirm = request.form.get('confirm_attendance')
+            if not confirm:
+                # Return the form with warnings for confirmation
+                courses = get_all_courses()
+                return render_template('student_mark_attendance.html', 
+                                     courses=courses, student=student, session_info=session_info, 
+                                     token=token, fraud_warnings=fraud_warnings,
+                                     latitude=latitude, longitude=longitude, course_code=course_code)
+            else:
+                # Log that student confirmed despite warnings
+                log_auth_event(session['student_id'], 'student', 'attendance_fraud_warning_confirmed', True, student_ip)
+        
+        # Mark attendance with fraud detection data
+        mark_attendance(session['student_id'], course_code, date_str, time_str, latitude=lat, longitude=lon,
+                       device_fingerprint=device_fingerprint, student_ip=student_ip)
         location_info = f" from location ({lat:.4f}, {lon:.4f})" if lat and lon else " (location not captured)"
         flash(f'Attendance marked for {student["name"]} in {course_code}{location_info}', 'success')
         return redirect(url_for('student_dashboard'))
@@ -600,7 +671,14 @@ def attendance_session():
     if request.method == 'POST':
         course_code = request.form.get('course_code', course_code)
         selected_date = request.form.get('date', selected_date)
-        token = create_attendance_session(course_code, selected_date)
+        # Capture instructor's IP and location for fraud detection
+        instructor_ip = request.remote_addr
+        instructor_lat = request.form.get('latitude')
+        instructor_lon = request.form.get('longitude')
+        token = create_attendance_session(course_code, selected_date, 
+                                        creator_ip=instructor_ip,
+                                        creator_latitude=float(instructor_lat) if instructor_lat else None,
+                                        creator_longitude=float(instructor_lon) if instructor_lon else None)
         flash('Attendance session token created.', 'success')
         return redirect(url_for('attendance_session', course=course_code, date=selected_date, token=token))
 
@@ -724,14 +802,18 @@ def create_poll_route():
     if 'user' not in session or session['role'] not in ['admin', 'instructor']:
         return redirect(url_for('login'))
     if request.method == 'POST':
-        course_code = request.form['course_code']
-        question = request.form['question']
-        options = [opt.strip() for opt in request.form['options'].split(',')]
-        if len(options) >= 2:
+        course_code = request.form.get('course_code', '').strip()
+        question = request.form.get('question', '').strip()
+        options = [opt.strip() for opt in request.form.get('options', '').split(',') if opt.strip()]
+        if not validate_course_code(course_code):
+            flash('Invalid course code format', 'error')
+        elif not question or len(question) < 5:
+            flash('Poll question must be at least 5 characters', 'error')
+        elif len(options) < 2:
+            flash('Need at least 2 options', 'error')
+        else:
             create_poll(course_code, question, options)
             flash(f"Poll created for {course_code}", 'success')
-        else:
-            flash("Need at least 2 options", 'error')
         return redirect(url_for('dashboard'))
     courses = get_all_courses()
     return render_template('create_poll.html', courses=courses)
@@ -790,10 +872,16 @@ def admin_users():
     if 'user' not in session or session['role'] != 'admin':
         return redirect(url_for('login'))
     if request.method == 'POST':
-        username = request.form['username']
-        password = request.form['password']
-        role = request.form['role']
-        if add_user(username, password, role):
+        username = request.form.get('username', '').strip()
+        password = request.form.get('password', '').strip()
+        role = request.form.get('role', '').strip()
+        if not validate_username(username):
+            flash('Invalid username format', 'error')
+        elif not validate_password(password):
+            flash('Password must be at least 8 characters', 'error')
+        elif role not in ('admin', 'instructor'):
+            flash('Invalid role selected', 'error')
+        elif add_user(username, password, role):
             flash('User added', 'success')
         else:
             flash('Username exists', 'error')
@@ -806,9 +894,13 @@ def admin_courses():
     if 'user' not in session or session['role'] != 'admin':
         return redirect(url_for('login'))
     if request.method == 'POST':
-        code = request.form['code']
-        name = request.form['name']
-        if add_course(code, name):
+        code = request.form.get('code', '').strip()
+        name = request.form.get('name', '').strip()
+        if not validate_course_code(code):
+            flash('Invalid course code format', 'error')
+        elif not name or len(name) < 2:
+            flash('Course name must be at least 2 characters', 'error')
+        elif add_course(code, name):
             flash('Course added', 'success')
         else:
             flash('Course code exists', 'error')
@@ -940,6 +1032,21 @@ def student_register():
         email = request.form.get('email', '').strip()
         if not student_id or not name or not password:
             flash('Student ID, name, and password are required.', 'error')
+            return redirect(url_for('student_register'))
+        if not validate_student_id(student_id):
+            flash('Invalid student ID format', 'error')
+            return redirect(url_for('student_register'))
+        if not validate_name(name):
+            flash('Invalid name format', 'error')
+            return redirect(url_for('student_register'))
+        if class_code and not validate_course_code(class_code):
+            flash('Invalid class code format', 'error')
+            return redirect(url_for('student_register'))
+        if email and not validate_email(email):
+            flash('Invalid email format', 'error')
+            return redirect(url_for('student_register'))
+        if not validate_password(password):
+            flash('Password must be at least 8 characters', 'error')
             return redirect(url_for('student_register'))
         if add_student(student_id, name, password, class_code, email, status='pending'):
             flash('Registration submitted. An admin must approve your account.', 'success')

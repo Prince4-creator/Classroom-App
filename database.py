@@ -110,7 +110,10 @@ def init_db():
             time TEXT NOT NULL,
             status TEXT DEFAULT 'present',
             latitude DOUBLE PRECISION,
-            longitude DOUBLE PRECISION
+            longitude DOUBLE PRECISION,
+            device_fingerprint TEXT,
+            student_ip TEXT,
+            fraud_flags TEXT
         )''')
 
         c.execute('''CREATE TABLE IF NOT EXISTS attendance_sessions (
@@ -120,7 +123,10 @@ def init_db():
             token TEXT UNIQUE NOT NULL,
             created_at TEXT NOT NULL,
             expires_at TEXT,
-            active INTEGER DEFAULT 1
+            active INTEGER DEFAULT 1,
+            creator_ip TEXT,
+            creator_latitude DOUBLE PRECISION,
+            creator_longitude DOUBLE PRECISION
         )''')
 
         c.execute('''CREATE TABLE IF NOT EXISTS polls (
@@ -175,6 +181,12 @@ def init_db():
         c.execute("ALTER TABLE students ADD COLUMN IF NOT EXISTS status TEXT DEFAULT 'active'")
         c.execute("ALTER TABLE attendance ADD COLUMN IF NOT EXISTS latitude DOUBLE PRECISION")
         c.execute("ALTER TABLE attendance ADD COLUMN IF NOT EXISTS longitude DOUBLE PRECISION")
+        c.execute("ALTER TABLE attendance ADD COLUMN IF NOT EXISTS device_fingerprint TEXT")
+        c.execute("ALTER TABLE attendance ADD COLUMN IF NOT EXISTS student_ip TEXT")
+        c.execute("ALTER TABLE attendance ADD COLUMN IF NOT EXISTS fraud_flags TEXT")
+        c.execute("ALTER TABLE attendance_sessions ADD COLUMN IF NOT EXISTS creator_ip TEXT")
+        c.execute("ALTER TABLE attendance_sessions ADD COLUMN IF NOT EXISTS creator_latitude DOUBLE PRECISION")
+        c.execute("ALTER TABLE attendance_sessions ADD COLUMN IF NOT EXISTS creator_longitude DOUBLE PRECISION")
         c.execute("ALTER TABLE announcements ADD COLUMN IF NOT EXISTS announcement_type TEXT DEFAULT 'announcement'")
         c.execute("ALTER TABLE announcements ADD COLUMN IF NOT EXISTS attachments TEXT")
 
@@ -244,6 +256,9 @@ def init_db():
             created_at TEXT NOT NULL,
             expires_at TEXT,
             active INTEGER DEFAULT 1,
+            creator_ip TEXT,
+            creator_latitude REAL,
+            creator_longitude REAL,
             FOREIGN KEY (course_code) REFERENCES courses(course_code)
         )''')
 
@@ -299,6 +314,21 @@ def init_db():
             c_sql.execute("ALTER TABLE attendance ADD COLUMN latitude REAL")
         if 'longitude' not in attendance_columns:
             c_sql.execute("ALTER TABLE attendance ADD COLUMN longitude REAL")
+        if 'device_fingerprint' not in attendance_columns:
+            c_sql.execute("ALTER TABLE attendance ADD COLUMN device_fingerprint TEXT")
+        if 'student_ip' not in attendance_columns:
+            c_sql.execute("ALTER TABLE attendance ADD COLUMN student_ip TEXT")
+        if 'fraud_flags' not in attendance_columns:
+            c_sql.execute("ALTER TABLE attendance ADD COLUMN fraud_flags TEXT")
+        
+        c_sql.execute("PRAGMA table_info(attendance_sessions)")
+        session_columns = [row[1] for row in c_sql.fetchall()]
+        if 'creator_ip' not in session_columns:
+            c_sql.execute("ALTER TABLE attendance_sessions ADD COLUMN creator_ip TEXT")
+        if 'creator_latitude' not in session_columns:
+            c_sql.execute("ALTER TABLE attendance_sessions ADD COLUMN creator_latitude REAL")
+        if 'creator_longitude' not in session_columns:
+            c_sql.execute("ALTER TABLE attendance_sessions ADD COLUMN creator_longitude REAL")
         c_sql.execute("PRAGMA table_info(announcements)")
         announcement_columns = [row[1] for row in c_sql.fetchall()]
         if 'announcement_type' not in announcement_columns:
@@ -645,20 +675,39 @@ def delete_course(code):
     conn.close()
 
 # ------- Attendance -------
-def mark_attendance(student_id, course_code, date_str, time_str, status='present', latitude=None, longitude=None):
+def mark_attendance(student_id, course_code, date_str, time_str, status='present', latitude=None, longitude=None, device_fingerprint=None, student_ip=None):
     conn = get_conn()
     c = conn.cursor()
     c.execute("SELECT id FROM attendance WHERE student_id=? AND course_code=? AND date=?", 
               (student_id, course_code, date_str))
     exists = c.fetchone()
+    
+    # Detect fraud flags
+    fraud_flags = []
+    
+    # Check for duplicate attendance within 5 minutes
     if exists:
-        c.execute("UPDATE attendance SET time=?, status=?, latitude=?, longitude=? WHERE student_id=? AND course_code=? AND date=?", 
-                  (time_str, status, latitude, longitude, student_id, course_code, date_str))
+        fraud_flags.append("duplicate_attendance_on_same_date")
+    
+    # Check if IP differs from session creator
+    c.execute("SELECT creator_ip FROM attendance_sessions WHERE course_code=? AND date=? AND active=1", 
+              (course_code, date_str))
+    session_row = c.fetchone()
+    if session_row and session_row[0] and student_ip and session_row[0] != student_ip:
+        fraud_flags.append("ip_mismatch")
+    
+    fraud_string = "|".join(fraud_flags) if fraud_flags else None
+    
+    if exists:
+        c.execute("UPDATE attendance SET time=?, status=?, latitude=?, longitude=?, device_fingerprint=?, student_ip=?, fraud_flags=? WHERE student_id=? AND course_code=? AND date=?", 
+                  (time_str, status, latitude, longitude, device_fingerprint, student_ip, fraud_string, student_id, course_code, date_str))
     else:
-        c.execute("INSERT INTO attendance (student_id, course_code, date, time, status, latitude, longitude) VALUES (?,?,?,?,?,?,?)",
-                  (student_id, course_code, date_str, time_str, status, latitude, longitude))
+        c.execute("INSERT INTO attendance (student_id, course_code, date, time, status, latitude, longitude, device_fingerprint, student_ip, fraud_flags) VALUES (?,?,?,?,?,?,?,?,?,?)",
+                  (student_id, course_code, date_str, time_str, status, latitude, longitude, device_fingerprint, student_ip, fraud_string))
     conn.commit()
     conn.close()
+    
+    return fraud_flags
 
 def get_attendance_by_date_and_course(date, course_code):
     conn = get_conn()
@@ -741,7 +790,7 @@ def get_student_attendance_summary(student_id):
     overall['rate'] = _attendance_rate(overall)
     return {'overall': overall, 'courses': courses}
 
-def create_attendance_session(course_code, date_str):
+def create_attendance_session(course_code, date_str, creator_ip=None, creator_latitude=None, creator_longitude=None):
     conn = get_conn()
     c = conn.cursor()
     c.execute("UPDATE attendance_sessions SET active=0 WHERE course_code=? AND date=? AND active=1",
@@ -749,8 +798,8 @@ def create_attendance_session(course_code, date_str):
     token = secrets.token_urlsafe(8)
     now = datetime.now()
     expires_at = (now + timedelta(minutes=SESSION_DURATION_MINUTES)).isoformat()
-    c.execute("INSERT INTO attendance_sessions (course_code, date, token, created_at, expires_at, active) VALUES (?,?,?,?,?,1)",
-              (course_code, date_str, token, now.isoformat(), expires_at))
+    c.execute("INSERT INTO attendance_sessions (course_code, date, token, created_at, expires_at, active, creator_ip, creator_latitude, creator_longitude) VALUES (?,?,?,?,?,1,?,?,?)",
+              (course_code, date_str, token, now.isoformat(), expires_at, creator_ip, creator_latitude, creator_longitude))
     conn.commit()
     conn.close()
     return token
@@ -759,7 +808,7 @@ def get_attendance_session_by_token(token):
     conn = get_conn()
     c = conn.cursor()
     now = datetime.now().isoformat()
-    c.execute("SELECT course_code, date, expires_at FROM attendance_sessions WHERE token=? AND active=1", (token,))
+    c.execute("SELECT course_code, date, expires_at, creator_ip, creator_latitude, creator_longitude FROM attendance_sessions WHERE token=? AND active=1", (token,))
     row = c.fetchone()
     if row:
         expires_at = row[2]
@@ -769,7 +818,15 @@ def get_attendance_session_by_token(token):
             conn.close()
             return None
     conn.close()
-    return {'course_code': row[0], 'date': row[1]} if row else None
+    if row:
+        return {
+            'course_code': row[0], 
+            'date': row[1],
+            'creator_ip': row[3],
+            'creator_latitude': row[4],
+            'creator_longitude': row[5]
+        }
+    return None
 
 def get_active_attendance_session(course_code, date_str):
     conn = get_conn()

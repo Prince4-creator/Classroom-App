@@ -17,6 +17,7 @@
         <div class="app-card p-4">
             <h2 class="h5 mb-3">New Announcement</h2>
             <form method="POST" enctype="multipart/form-data" class="row g-3">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>
                 <div class="col-12">
                     <label class="form-label">Title</label>
                     <input type="text" name="title" class="form-control" placeholder="Announcement title" required>
@@ -74,6 +75,7 @@
                                 <p class="small text-muted mb-0">{{ a.created_at[:10] }} • {{ a.author }}{% if a.course_code %} • {{ a.course_code }}{% else %} • All Courses{% endif %}</p>
                             </div>
                             <form method="POST" action="/admin/announcements/delete" class="ms-3">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>
                                 <input type="hidden" name="announcement_id" value="{{ a.id }}">
                                 <button type="submit" class="btn btn-sm btn-outline-danger">Delete</button>
                             </form>

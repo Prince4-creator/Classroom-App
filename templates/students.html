@@ -11,6 +11,7 @@
                 <div class="card-header">Add New Student</div>
                 <div class="card-body">
                     <form method="POST">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>
                         <div class="mb-2"><input type="text" name="student_id" class="form-control" placeholder="Student ID" required></div>
                         <div class="mb-2"><input type="text" name="name" class="form-control" placeholder="Full Name" required></div>
                         <button type="submit" class="btn btn-primary">Add</button>

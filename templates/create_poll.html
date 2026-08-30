@@ -5,6 +5,7 @@
     <div class="app-card p-4" style="max-width: 560px; width: 100%;">
         <h1 class="h4 mb-3">Create a Poll</h1>
         <form method="POST">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>
             <div class="mb-3">
                 <label class="form-label">Course</label>
                 <select name="course_code" class="form-select" required>

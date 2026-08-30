@@ -10,6 +10,7 @@
                 <p class="small text-muted">Sign in to access your dashboard</p>
             </div>
             <form method="POST">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>
                 {% if next_url %}
                     <input type="hidden" name="next" value="{{ next_url }}">
                 {% endif %}

@@ -17,6 +17,7 @@
         <div class="app-card p-4">
             <h2 class="h5 mb-3">Add New Student</h2>
             <form method="POST" class="row g-3">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>
                 <input type="hidden" name="action" value="add">
                 <div class="col-md-3">
                     <label class="form-label">Student ID</label>
@@ -63,11 +64,13 @@
                             <td>{{ s.email or '—' }}</td>
                             <td>
                                 <form method="POST" class="d-inline me-2">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>
                                     <input type="hidden" name="action" value="approve">
                                     <input type="hidden" name="student_id" value="{{ s.student_id }}">
                                     <button class="btn btn-sm btn-outline-success">Approve</button>
                                 </form>
                                 <form method="POST" class="d-inline">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>
                                     <input type="hidden" name="action" value="delete">
                                     <input type="hidden" name="student_id" value="{{ s.student_id }}">
                                     <button class="btn btn-sm btn-outline-danger">Reject</button>
@@ -104,6 +107,7 @@
                             <td>
                                 <a href="/admin/students/edit?student_id={{ s.student_id }}" class="btn btn-sm btn-outline-secondary me-2">Edit</a>
                                 <form method="POST" class="d-inline">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>
                                     <input type="hidden" name="action" value="delete">
                                     <input type="hidden" name="student_id" value="{{ s.student_id }}">
                                     <button class="btn btn-sm btn-outline-danger">Delete</button>

@@ -6,6 +6,7 @@
         <div class="app-card p-4">
             <h2 class="h4 mb-3">Student Attendance Check-In</h2>
             <form method="GET" class="row g-2 mb-4">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>
                 <div class="col-sm-9">
                     <input type="text" name="token" value="{{ token }}" class="form-control" placeholder="Enter attendance token">
                 </div>
@@ -22,6 +23,7 @@
                 <div class="alert alert-warning">Invalid or expired token. Please ask your instructor for a new link.</div>
             {% endif %}
             <form method="POST">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>
                 <input type="hidden" name="token" value="{{ token }}">
                 <div class="mb-3">
                     <label class="form-label">Student ID</label>
