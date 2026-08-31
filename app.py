@@ -1250,7 +1250,13 @@ def mistral_chat(messages, temperature=0.7, max_tokens=1500):
         except Exception:
             detail = ''
         print('Mistral API HTTP error:', e.code, detail)
-        if e.code in (401, 403):
+        if e.code == 401:
+            return None, 'Mistral rejected the API key. Check MISTRAL_API_KEY in your .env file.'
+        if e.code == 403:
+            if 'tier' in detail.lower() or '1910' in detail:
+                return None, (f"Model '{MISTRAL_MODEL}' is not in your Mistral plan. "
+                              "Set MISTRAL_MODEL in your .env file to one you have access to "
+                              "(e.g. mistral-medium-latest or mistral-small-latest).")
             return None, 'Mistral rejected the API key. Check MISTRAL_API_KEY in your .env file.'
         if e.code == 404:
             return None, f"Model '{MISTRAL_MODEL}' is not available for this API key. Set MISTRAL_MODEL in your .env file (e.g. mistral-small-latest)."
