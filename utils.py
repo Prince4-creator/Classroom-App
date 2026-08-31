@@ -30,6 +30,11 @@ def check_rate_limit(key, limit=5, window_seconds=900):
     return len(attempts) <= limit
 
 
+def clear_rate_limit(key):
+    """Reset the attempt budget for a key (e.g. after a successful login)."""
+    _RATE_LIMIT_STORAGE.pop(key, None)
+
+
 def validate_email(email):
     """Validate email format"""
     pattern = r'^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$'
@@ -149,44 +154,41 @@ def check_fraud_warnings(student_id, course_code, date_str, new_lat=None, new_lo
     """
     from database import get_conn
     from datetime import datetime, timedelta
-    
+
     warnings = []
     conn = get_conn()
     c = conn.cursor()
-    
-    # Check if student marked attendance recently (within 5 minutes)
+
+    # Check if student marked attendance recently (within 5 minutes).
+    # The attendance.time column stores 'HH:MM:SS', so compare against the
+    # same format rather than a full ISO datetime string.
     now = datetime.now()
-    time_ago = (now - timedelta(minutes=5)).isoformat()
-    
-    c.execute("""SELECT time FROM attendance 
+    threshold = (now - timedelta(minutes=5)).strftime('%H:%M:%S')
+
+    c.execute("""SELECT time FROM attendance
                  WHERE student_id=? AND course_code=? AND date=? AND time > ?""",
-              (student_id, course_code, date_str, time_ago))
+              (student_id, course_code, date_str, threshold))
     recent = c.fetchone()
     if recent:
         warnings.append('Student recently marked attendance - possible duplicate attempt')
-    
-    # Check IP consistency
-    c.execute("""SELECT creator_ip FROM attendance_sessions 
-                 WHERE course_code=? AND date=? AND active=1 
+
+    # Check IP and location consistency against the active session
+    c.execute("""SELECT creator_ip, creator_latitude, creator_longitude
+                 FROM attendance_sessions
+                 WHERE course_code=? AND date=? AND active=1
                  ORDER BY created_at DESC LIMIT 1""",
               (course_code, date_str))
-    session = c.fetchone()
-    
-    if session and session[0] and new_ip and session[0] != new_ip:
-        warnings.append('Student is on a different network than the instructor')
-    
-    # Check location consistency
-    if session:
-        c.execute("""SELECT creator_latitude, creator_longitude FROM attendance_sessions 
-                     WHERE course_code=? AND date=? AND active=1 
-                     ORDER BY created_at DESC LIMIT 1""",
-                  (course_code, date_str))
-        loc = c.fetchone()
-        if loc and loc[0] and loc[1] and new_lat and new_lon:
-            distance = calculate_distance(loc[0], loc[1], new_lat, new_lon)
+    session_row = c.fetchone()
+
+    if session_row:
+        creator_ip, creator_lat, creator_lon = session_row
+        if creator_ip and new_ip and creator_ip != new_ip:
+            warnings.append('Student is on a different network than the instructor')
+        if creator_lat and creator_lon and new_lat and new_lon:
+            distance = calculate_distance(creator_lat, creator_lon, new_lat, new_lon)
             if distance > 1.0:  # More than 1 km away
                 warnings.append(f'Student is {distance:.2f} km away from instructor location')
-    
+
     conn.close()
     return warnings
 

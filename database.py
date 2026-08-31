@@ -5,6 +5,11 @@ import os
 from datetime import datetime, timedelta
 from werkzeug.security import generate_password_hash, check_password_hash
 
+# Resolve the SQLite database relative to this file so it works from any CWD.
+DB_NAME = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'classroom.db')
+SESSION_DURATION_MINUTES = 30
+ALLOWED_STATUSES = {'present', 'absent', 'late', 'excused'}
+
 # Optional Postgres (Supabase) support
 USE_POSTGRES = False
 PG_CONN_STR = os.environ.get('DATABASE_URL') or os.environ.get('SUPABASE_DB_URL')
@@ -68,10 +73,6 @@ def get_conn():
         return ConnWrap(real)
 
     return sqlite3.connect(DB_NAME)
-
-DB_NAME = 'classroom.db'
-SESSION_DURATION_MINUTES = 30
-ALLOWED_STATUSES = {'present', 'absent', 'late', 'excused'}
 
 def init_db():
     conn = get_conn()
@@ -175,6 +176,18 @@ def init_db():
             expires_at TEXT,
             used INTEGER DEFAULT 0
         )''')
+
+        c.execute('''CREATE TABLE IF NOT EXISTS fraud_attempts (
+            id SERIAL PRIMARY KEY,
+            student_id TEXT NOT NULL,
+            course_code TEXT NOT NULL,
+            fraud_type TEXT NOT NULL,
+            details TEXT,
+            detected_at TEXT NOT NULL
+        )''')
+
+        # Enforce one vote per student per poll (SQLite schema has UNIQUE too)
+        c.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_votes_poll_student ON votes (poll_id, student_id)")
 
         # Add missing columns safely (Postgres supports ADD COLUMN IF NOT EXISTS)
         c.execute("ALTER TABLE students ADD COLUMN IF NOT EXISTS email TEXT")
@@ -366,6 +379,20 @@ def init_db():
             used INTEGER DEFAULT 0,
             FOREIGN KEY (student_id) REFERENCES students(student_id)
         )''')
+
+        # Audit log of suspected attendance fraud
+        c_sql.execute('''CREATE TABLE IF NOT EXISTS fraud_attempts (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            student_id TEXT NOT NULL,
+            course_code TEXT NOT NULL,
+            fraud_type TEXT NOT NULL,
+            details TEXT,
+            detected_at TEXT NOT NULL
+        )''')
+
+    # Announcements saved with '' course_code were invisible to students
+    # (their query matches course_code IS NULL for global posts).
+    c.execute("UPDATE announcements SET course_code=NULL WHERE course_code=''")
 
     conn.commit()
     conn.close()
@@ -626,10 +653,10 @@ def get_student_emails(course_code=None):
 def get_student_info(student_id):
     conn = get_conn()
     c = conn.cursor()
-    c.execute("SELECT name, class_code, email FROM students WHERE student_id=?", (student_id,))
+    c.execute("SELECT student_id, name, class_code, email FROM students WHERE student_id=?", (student_id,))
     row = c.fetchone()
     conn.close()
-    return {'name': row[0], 'class_code': row[1], 'email': row[2]} if row else None
+    return {'student_id': row[0], 'name': row[1], 'class_code': row[2], 'email': row[3]} if row else None
 
 def get_student_name(student_id):
     conn = get_conn()
@@ -935,6 +962,25 @@ def get_active_poll(course_code):
     if row:
         return {'id': row[0], 'question': row[1], 'options': json.loads(row[2])}
     return None
+
+def get_poll_by_id(poll_id):
+    conn = get_conn()
+    c = conn.cursor()
+    c.execute("SELECT id, course_code, question, options, active FROM polls WHERE id=?", (poll_id,))
+    row = c.fetchone()
+    conn.close()
+    if row:
+        return {'id': row[0], 'course_code': row[1], 'question': row[2],
+                'options': json.loads(row[3]), 'active': bool(row[4])}
+    return None
+
+def get_poll_question(poll_id):
+    conn = get_conn()
+    c = conn.cursor()
+    c.execute("SELECT question FROM polls WHERE id=?", (poll_id,))
+    row = c.fetchone()
+    conn.close()
+    return row[0] if row else None
 
 def cast_vote(poll_id, student_id, answer):
     conn = get_conn()

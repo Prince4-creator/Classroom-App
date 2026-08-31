@@ -9,6 +9,7 @@ from utils import (
     validate_password,
     validate_name,
     check_rate_limit,
+    clear_rate_limit,
     log_action,
     require_student_role,
 )
@@ -117,7 +118,8 @@ def get_accessible_host_url():
             s.connect(('8.8.8.8', 80))
             local_ip = s.getsockname()[0]
             s.close()
-            return f"{parsed.scheme}://{local_ip}:{parsed.port}"
+            port_part = f":{parsed.port}" if parsed.port else ""
+            return f"{parsed.scheme}://{local_ip}{port_part}"
         except Exception:
             return host_url
     return host_url
@@ -299,6 +301,7 @@ def login():
             return render_template('login.html')
         role = verify_user(username, password)
         if role:
+            clear_rate_limit(rate_key)
             session.clear()
             session.permanent = True
             session['user'] = username
@@ -333,6 +336,7 @@ def admin_login():
                 return render_template('admin_login.html')
             role = verify_user(username, password)
             if role in ('admin', 'instructor'):
+                clear_rate_limit(rate_key)
                 session.clear()
                 session.permanent = True
                 session['user'] = username
@@ -523,6 +527,12 @@ def student_mark_attendance():
             else:
                 # Log that student confirmed despite warnings
                 log_auth_event(session['student_id'], 'student', 'attendance_fraud_warning_confirmed', True, student_ip)
+                try:
+                    from fraud_detection import log_fraud_attempt
+                    log_fraud_attempt(session['student_id'], course_code, 'warnings_confirmed',
+                                      '; '.join(fraud_warnings))
+                except Exception as fraud_err:
+                    print('Could not record fraud attempt:', fraud_err)
         
         # Mark attendance with fraud detection data
         mark_attendance(session['student_id'], course_code, date_str, time_str, latitude=lat, longitude=lon,
@@ -552,6 +562,7 @@ def student_magic_login():
         return redirect(url_for('student_login'))
     consume_magic_token(token)
     session.clear()
+    session.permanent = True
     session['student_id'] = student_id
     session['student_name'] = student_info['name']
     session['role'] = 'student'
@@ -568,6 +579,8 @@ def magic_qr():
     session_token = request.args.get('session_token')
     if not student_id:
         return "Missing student_id", 400
+    if qrcode is None:
+        return "QR code support is not installed (pip install qrcode Pillow)", 503
     magic = create_magic_token(student_id, minutes_valid=30)
     next_path = url_for('student_mark_attendance', token=session_token) if session_token else url_for('student_dashboard')
     login_url = url_for('student_magic_login', token=magic, next=next_path, _external=True)
@@ -616,17 +629,29 @@ def dashboard():
 # ---------- Attendance for Students ----------
 @app.route('/attendance', methods=['GET', 'POST'])
 def attendance():
+    if 'student_id' not in session and 'user' not in session:
+        flash('Please log in to mark attendance.', 'error')
+        return redirect(url_for('student_login', next='/attendance'))
     if request.method == 'POST':
-        student_id = request.form['student_id']
-        course_code = request.form['course_code']
+        student_id = request.form.get('student_id', '').strip()
+        course_code = request.form.get('course_code', '').strip()
+        # Students can only mark attendance for themselves
+        if 'student_id' in session:
+            student_id = session['student_id']
+        if not student_id or not validate_student_id(student_id):
+            flash('Invalid student ID.', 'error')
+            return redirect(url_for('attendance'))
         name = get_student_name(student_id)
         if not name:
             flash(f"Student ID {student_id} not found", 'error')
             return redirect(url_for('attendance'))
+        if course_code not in {c['code'] for c in get_all_courses()}:
+            flash('Invalid course selected.', 'error')
+            return redirect(url_for('attendance'))
         now = datetime.now()
         date_str = now.strftime('%Y-%m-%d')
         time_str = now.strftime('%H:%M:%S')
-        mark_attendance(student_id, course_code, date_str, time_str)
+        mark_attendance(student_id, course_code, date_str, time_str, student_ip=request.remote_addr)
         flash(f"Attendance marked for {name} in {course_code}", 'success')
         return redirect(url_for('attendance'))
     courses = get_all_courses()
@@ -640,9 +665,12 @@ def attendance_checkin():
         session_info = get_attendance_session_by_token(token)
 
     if request.method == 'POST':
-        student_id = request.form['student_id'].strip()
-        password = request.form['password'].strip()
-        token = request.form['token'].strip()
+        student_id = request.form.get('student_id', '').strip()
+        password = request.form.get('password', '').strip()
+        token = request.form.get('token', '').strip()
+        if not student_id or not password:
+            flash('Student ID and password are required.', 'error')
+            return redirect(url_for('attendance_checkin', token=token))
         session_info = get_attendance_session_by_token(token)
         if not session_info:
             flash('Invalid or expired attendance token.', 'error')
@@ -673,12 +701,17 @@ def attendance_session():
         selected_date = request.form.get('date', selected_date)
         # Capture instructor's IP and location for fraud detection
         instructor_ip = request.remote_addr
-        instructor_lat = request.form.get('latitude')
-        instructor_lon = request.form.get('longitude')
+
+        def parse_coord(value):
+            try:
+                return float(value) if value else None
+            except (TypeError, ValueError):
+                return None
+
         token = create_attendance_session(course_code, selected_date, 
                                         creator_ip=instructor_ip,
-                                        creator_latitude=float(instructor_lat) if instructor_lat else None,
-                                        creator_longitude=float(instructor_lon) if instructor_lon else None)
+                                        creator_latitude=parse_coord(request.form.get('latitude')),
+                                        creator_longitude=parse_coord(request.form.get('longitude')))
         flash('Attendance session token created.', 'success')
         return redirect(url_for('attendance_session', course=course_code, date=selected_date, token=token))
 
@@ -699,6 +732,8 @@ def attendance_session():
 @app.route('/attendance/general_qr', methods=['GET'])
 def attendance_general_qr():
     """Generate a general QR code for all students to select course and mark attendance"""
+    if qrcode is None:
+        return "QR code support is not installed (pip install qrcode Pillow)", 503
     host_url = get_accessible_host_url()
     course_select_url = f"{host_url}{url_for('attendance_select_course')}"
     qr = qrcode.QRCode(box_size=6, border=2)
@@ -735,17 +770,23 @@ def manage_attendance():
 
 @app.route('/update_attendance_status', methods=['POST'])
 def update_attendance_status_route():
-    record_id = request.form['record_id']
-    status = request.form['status']
+    if 'user' not in session or session['role'] not in ['admin', 'instructor']:
+        return redirect(url_for('login'))
+    record_id = request.form.get('record_id')
+    status = request.form.get('status')
     if status not in ALLOWED_STATUSES:
         flash('Invalid attendance status', 'error')
-    else:
+    elif record_id:
         update_attendance_status(record_id, status)
         flash('Status updated', 'success')
-    return redirect(url_for('manage_attendance', course=request.form['course_code'], date=request.form['date']))
+    else:
+        flash('Missing attendance record ID', 'error')
+    return redirect(url_for('manage_attendance', course=request.form.get('course_code', 'CS101'), date=request.form.get('date', datetime.now().strftime('%Y-%m-%d'))))
 
 @app.route('/export_attendance')
 def export_attendance():
+    if 'user' not in session or session['role'] not in ['admin', 'instructor']:
+        return redirect(url_for('login'))
     course_code = request.args.get('course')
     date = request.args.get('date')
     records = get_attendance_by_date_and_course(date, course_code)
@@ -760,13 +801,22 @@ def export_attendance():
 # ---------- Polls ----------
 @app.route('/poll', methods=['GET', 'POST'])
 def poll():
+    if 'student_id' not in session and 'user' not in session:
+        flash('Please log in to view polls.', 'error')
+        return redirect(url_for('student_login', next='/poll'))
     if request.method == 'POST':
-        student_id = request.form['student_id']
-        course_code = request.form['course_code']
-        answer = request.form['answer']
-        poll_id = request.form['poll_id']
-        if not get_student_name(student_id):
-            flash("Invalid student ID", 'error')
+        if 'student_id' not in session:
+            flash('Only students can vote in polls.', 'error')
+            return redirect(url_for('poll'))
+        student_id = session['student_id']
+        poll_id = request.form.get('poll_id', '').strip()
+        answer = request.form.get('answer', '').strip()
+        target_poll = get_poll_by_id(poll_id) if poll_id else None
+        if not target_poll or not target_poll['active']:
+            flash('This poll is no longer active.', 'error')
+            return redirect(url_for('poll'))
+        if answer not in target_poll['options']:
+            flash('Invalid answer for this poll.', 'error')
             return redirect(url_for('poll'))
         success = cast_vote(poll_id, student_id, answer)
         if success:
@@ -780,7 +830,8 @@ def poll():
         p = get_active_poll(c['code'])
         if p:
             active_polls[c['code']] = p
-    return render_template('poll.html', active_polls=active_polls, courses=courses)
+    return render_template('poll.html', active_polls=active_polls, courses=courses,
+                           can_vote='student_id' in session)
 
 @app.route('/poll/results')
 def poll_results():
@@ -788,13 +839,13 @@ def poll_results():
     if not poll_id:
         flash("No poll selected", 'error')
         return redirect(url_for('poll'))
-    results = get_poll_results(poll_id)
-    conn = get_conn()
-    c = conn.cursor()
-    c.execute("SELECT question FROM polls WHERE id=?", (poll_id,))
-    row = c.fetchone()
-    conn.close()
-    question = row[0] if row else "Poll"
+    try:
+        results = get_poll_results(poll_id)
+        question = get_poll_question(poll_id) or "Poll"
+    except Exception as e:
+        print('poll_results DB error:', e)
+        flash('Could not load poll results. Please try again later.', 'error')
+        return redirect(url_for('poll'))
     return render_template('poll_results.html', results=results, question=question, poll_id=poll_id)
 
 @app.route('/create_poll', methods=['GET', 'POST'])
@@ -826,20 +877,30 @@ def admin_students():
     if request.method == 'POST':
         action = request.form.get('action')
         if action == 'add':
-            student_id = request.form['student_id']
-            name = request.form['name']
-            password = request.form['password']
-            class_code = request.form.get('class_code', '')
+            student_id = request.form.get('student_id', '').strip()
+            name = request.form.get('name', '').strip()
+            password = request.form.get('password', '')
+            class_code = request.form.get('class_code', '').strip()
             email = request.form.get('email', '').strip()
-            if add_student(student_id, name, password, class_code, email):
+            if not validate_student_id(student_id):
+                flash('Invalid student ID format', 'error')
+            elif not validate_name(name):
+                flash('Invalid student name', 'error')
+            elif not validate_password(password):
+                flash('Password must be at least 8 characters', 'error')
+            elif class_code and not validate_course_code(class_code):
+                flash('Invalid class code format', 'error')
+            elif email and not validate_email(email):
+                flash('Invalid email format', 'error')
+            elif add_student(student_id, name, password, class_code, email):
                 flash('Student added', 'success')
             else:
                 flash('ID exists or email invalid', 'error')
         elif action == 'approve':
-            approve_student(request.form['student_id'])
+            approve_student(request.form.get('student_id', ''))
             flash('Student approved', 'success')
         elif action == 'delete':
-            delete_student(request.form['student_id'])
+            delete_student(request.form.get('student_id', ''))
             flash('Student deleted', 'success')
         return redirect(url_for('admin_students'))
     students = get_all_students()
@@ -852,11 +913,17 @@ def admin_edit_student():
         return redirect(url_for('login'))
     student_id = request.values.get('student_id')
     if request.method == 'POST':
-        student_id = request.form['student_id']
-        name = request.form['name']
-        class_code = request.form.get('class_code', '')
+        student_id = request.form.get('student_id', '').strip()
+        name = request.form.get('name', '').strip()
+        class_code = request.form.get('class_code', '').strip()
         email = request.form.get('email', '').strip()
-        if update_student(student_id, name, class_code, email):
+        if not validate_name(name):
+            flash('Invalid student name', 'error')
+        elif class_code and not validate_course_code(class_code):
+            flash('Invalid class code format', 'error')
+        elif email and not validate_email(email):
+            flash('Invalid email format', 'error')
+        elif update_student(student_id, name, class_code, email):
             flash('Student updated', 'success')
         else:
             flash('Unable to update student', 'error')
@@ -913,11 +980,21 @@ def admin_announcements():
     if 'user' not in session or session['role'] != 'admin':
         return redirect(url_for('login'))
     if request.method == 'POST':
-        title = request.form['title']
-        content = request.form['content']
-        course_code = request.form.get('course_code')
-        announcement_type = request.form.get('announcement_type', 'announcement')
+        title = request.form.get('title', '').strip()
+        content = request.form.get('content', '').strip()
+        course_code = request.form.get('course_code') or None
+        announcement_type = request.form.get('announcement_type', 'announcement').strip()
         send_to_email = request.form.get('send_email') == 'on'
+
+        if not title or not content:
+            flash('Announcement title and content are required.', 'error')
+            return redirect(url_for('admin_announcements'))
+        if announcement_type not in ('announcement', 'assignment', 'exercise'):
+            flash('Invalid announcement type.', 'error')
+            return redirect(url_for('admin_announcements'))
+        if course_code and not validate_course_code(course_code):
+            flash('Invalid course code format', 'error')
+            return redirect(url_for('admin_announcements'))
 
         attachment_files = request.files.getlist('attachments')
         saved_attachments = []
@@ -989,6 +1066,10 @@ def admin_email_test():
             flash('Recipient email is required.', 'error')
             return redirect(url_for('admin_email_test'))
 
+        if not validate_email(recipient):
+            flash('Recipient email format is invalid.', 'error')
+            return redirect(url_for('admin_email_test'))
+
         if send_email(subject, body, [recipient]):
             flash(f'Test email sent to {recipient}', 'success')
         else:
@@ -1013,12 +1094,16 @@ def download_upload(filename):
 def home():
     if 'user' in session:
         return redirect(url_for('dashboard'))
+    if 'student_id' in session:
+        return redirect(url_for('student_dashboard'))
     return render_template('login_choice.html')
 
 @app.route('/login_choice')
 def login_choice():
     if 'user' in session:
         return redirect(url_for('dashboard'))
+    if 'student_id' in session:
+        return redirect(url_for('student_dashboard'))
     return render_template('login_choice.html')
 
 @app.route('/student/register', methods=['GET', 'POST'])
@@ -1092,6 +1177,10 @@ def admin_delete_user():
 
 @app.route('/debug_routes')
 def debug_routes():
+    secret = os.environ.get('DEBUG_SECRET', '').strip()
+    provided = request.args.get('secret', '')
+    if not secret or provided != secret:
+        return "Not authorized", 401
     routes = []
     for rule in sorted(app.url_map.iter_rules(), key=lambda r: str(r.rule)):
         methods = ','.join(sorted(rule.methods - {'HEAD', 'OPTIONS'}))

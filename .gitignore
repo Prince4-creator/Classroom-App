@@ -1,7 +1,10 @@
 .vercel
 .env
+.env.txt
 classroom.db
 uploads/
 __pycache__/
 *.pyc
 .venv/
+.pytest_cache/
+debug_resp*.txt

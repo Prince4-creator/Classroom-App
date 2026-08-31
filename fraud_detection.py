@@ -64,24 +64,27 @@ def get_fraud_warnings(student_id, course_code, date_str):
     return warnings
 
 
-def check_recent_attendance(student_id, course_code, minutes=5):
+def check_recent_attendance(student_id, course_code, minutes=5, date_str=None):
     """
     Check if the student recently marked attendance (within X minutes).
     Returns the time of the recent attendance or None.
     """
     conn = get_conn()
     c = conn.cursor()
-    
+
     now = datetime.now()
-    time_ago = (now - timedelta(minutes=minutes)).isoformat()
-    
+    if date_str is None:
+        date_str = now.strftime('%Y-%m-%d')
+    # attendance.time stores 'HH:MM:SS', so the threshold must match that format.
+    threshold = (now - timedelta(minutes=minutes)).strftime('%H:%M:%S')
+
     c.execute("""SELECT time
                  FROM attendance
-                 WHERE student_id=? AND course_code=? AND time > ?""",
-              (student_id, course_code, time_ago))
+                 WHERE student_id=? AND course_code=? AND date=? AND time > ?""",
+              (student_id, course_code, date_str, threshold))
     row = c.fetchone()
     conn.close()
-    
+
     return row[0] if row else None
 
 

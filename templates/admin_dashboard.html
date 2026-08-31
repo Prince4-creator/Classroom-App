@@ -68,7 +68,7 @@
                     </div>
                 </div>
                 <div class="col-md-8">
-                    <div class="app-card p-3 h-100">
+                    <div class="app-card p-3 h-100" id="login-activity">
                         <h3 class="h6 mb-3">Recent login activity</h3>
                         {% if auth_events %}
                         <div class="list-group list-group-flush">
@@ -188,7 +188,7 @@
             <h2 class="h5">Recent logins</h2>
             <p class="text-muted">Latest authentication events.</p>
             <div class="display-6 fw-bold">{{ auth_events|length }}</div>
-            <a href="#" class="btn app-btn mt-3">View Activity</a>
+            <a href="#login-activity" class="btn app-btn mt-3">View Activity</a>
         </div>
     </div>
     <div class="col-lg-3 col-md-6">

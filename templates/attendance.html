@@ -5,12 +5,20 @@
     <div class="col-xl-5 col-lg-6">
         <div class="app-card p-4">
             <h2 class="h4 mb-3">Mark Attendance</h2>
+            {% if session.student_id %}
+            <p class="text-muted mb-4">Select the course to mark attendance for today.</p>
+            {% else %}
             <p class="text-muted mb-4">Enter student ID and select the course to mark attendance manually.</p>
+            {% endif %}
             <form method="POST">
                 <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>
                 <div class="mb-3">
                     <label class="form-label">Student ID</label>
+                    {% if session.student_id %}
+                    <input type="text" name="student_id" class="form-control" value="{{ session.student_id }}" readonly>
+                    {% else %}
                     <input type="text" name="student_id" class="form-control" placeholder="Enter student ID" required>
+                    {% endif %}
                 </div>
                 <div class="mb-4">
                     <label class="form-label">Course</label>

@@ -7,14 +7,11 @@
         {% for course, poll in active_polls.items() %}
         <div class="app-card p-4 mb-3">
             <h2 class="h5 mb-3">{{ course }} — {{ poll.question }}</h2>
+            {% if can_vote %}
             <form method="POST">
                 <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>
                 <input type="hidden" name="poll_id" value="{{ poll.id }}">
                 <input type="hidden" name="course_code" value="{{ course }}">
-                <div class="mb-3">
-                    <label class="form-label">Your Student ID</label>
-                    <input type="text" name="student_id" class="form-control" style="max-width: 280px;" required>
-                </div>
                 {% for opt in poll.options %}
                 <div class="form-check mb-1">
                     <input class="form-check-input" type="radio" name="answer" id="opt{{ poll.id }}{{ loop.index }}" value="{{ opt }}" required>
@@ -26,6 +23,14 @@
                     <a href="/poll/results?poll_id={{ poll.id }}" class="small">See results</a>
                 </div>
             </form>
+            {% else %}
+            <p class="text-muted mb-2">Students vote from their own login. You are viewing this poll as staff.</p>
+            <div>
+                <span class="small text-muted me-2">Options:</span>
+                {% for opt in poll.options %}<span class="badge badge-soft me-1">{{ opt }}</span>{% endfor %}
+            </div>
+            <a href="/poll/results?poll_id={{ poll.id }}" class="small">See results</a>
+            {% endif %}
         </div>
         {% else %}
         <div class="app-card p-4">

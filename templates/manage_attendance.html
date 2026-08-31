@@ -94,7 +94,7 @@
                                 {% endif %}
                             </td>
                             <td>
-                                <form method="POST" action="/update_attendance_status" class="d-flex gap-2 align-items-center">
+                                <form method="POST" action="/update_attendance_status" id="statusForm{{ rec.id }}" class="d-flex gap-2 align-items-center">
                 <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>
                                     <input type="hidden" name="record_id" value="{{ rec.id }}">
                                     <input type="hidden" name="course_code" value="{{ course_code }}">
@@ -105,8 +105,9 @@
                                         <option value="late" {% if rec.status=='late' %}selected{% endif %}>Late</option>
                                         <option value="excused" {% if rec.status=='excused' %}selected{% endif %}>Excused</option>
                                     </select>
+                                </form>
                             </td>
-                            <td><button type="submit" class="btn btn-sm btn-outline-light">Update</button></form></td>
+                            <td><button type="submit" form="statusForm{{ rec.id }}" class="btn btn-sm btn-outline-light">Update</button></td>
                         </tr>
                         {% endfor %}
                     </tbody>
