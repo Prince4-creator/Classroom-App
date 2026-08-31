@@ -7,6 +7,7 @@ database.DB_NAME) so the development classroom.db is never modified.
 import pytest
 
 import database
+from app import STAFF_LOGIN_PATH
 from utils import check_fraud_warnings, check_rate_limit, clear_rate_limit
 
 
@@ -25,7 +26,7 @@ def login_student(client, student_id='S001', password='student123'):
 
 
 def login_admin(client, username='admin', password='admin123'):
-    return client.post('/admin/login', data={'username': username, 'password': password})
+    return client.post(STAFF_LOGIN_PATH, data={'username': username, 'password': password})
 
 
 # ---------- Authorization guards ----------
@@ -208,12 +209,26 @@ def test_failed_admin_logins_still_lock_out(client):
 
 # ---------- Admin login exposure ----------
 
-def test_login_choice_page_does_not_promote_admin_login(client):
+def test_login_choice_page_has_no_staff_entry_point(client):
     response = client.get('/login_choice')
     assert response.status_code == 200
-    # Prominent admin button replaced with a discreet staff link
+    # No staff/admin entry point is advertised to students
     assert b'Admin Login' not in response.data
-    assert b'Staff login' in response.data
+    assert b'Staff login' not in response.data
+    assert b'/admin/login' not in response.data
+
+
+def test_well_known_staff_login_urls_are_decoys(client):
+    for path in ('/login', '/admin/login'):
+        response = client.get(path)
+        assert response.status_code == 302
+        assert '/login_choice' in response.headers['Location']
+
+
+def test_staff_login_form_served_at_secret_path(client):
+    response = client.get(STAFF_LOGIN_PATH)
+    assert response.status_code == 200
+    assert b'Admin / Instructor Login' in response.data
 
 
 def test_admin_panel_warns_about_default_password(client):

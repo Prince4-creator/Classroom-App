@@ -48,6 +48,12 @@ if SUPABASE_URL and SUPABASE_KEY:
     except Exception as e:
         print('Warning: Supabase client init failed:', e)
 
+# Staff login lives at a non-obvious URL so students are never pointed at it.
+# Override with STAFF_LOGIN_PATH in .env to use your own secret path.
+STAFF_LOGIN_PATH = os.environ.get('STAFF_LOGIN_PATH', '').strip() or '/staff-portal'
+if not STAFF_LOGIN_PATH.startswith('/'):
+    STAFF_LOGIN_PATH = '/' + STAFF_LOGIN_PATH
+
 app = Flask(__name__)
 
 # Security: SECRET_KEY must be set in production
@@ -299,39 +305,25 @@ def send_email(subject, body, recipients):
 
 
 # ---------- Authentication ----------
-@app.route('/login', methods=['GET', 'POST'])
-def login():
-    if request.method == 'POST':
-        username = request.form.get('username', '').strip()
-        password = request.form.get('password', '').strip()
-        if not username or not validate_username(username):
-            flash('Invalid username format', 'error')
-            return render_template('login.html')
-        rate_key = f"staff_login:{request.remote_addr}:{username}"
-        if not check_rate_limit(rate_key, limit=5, window_seconds=900):
-            flash('Too many failed login attempts. Please try again later.', 'error')
-            log_auth_event(username, 'staff', 'staff_login_locked', False, request.remote_addr)
-            return render_template('login.html')
-        role = verify_user(username, password)
-        if role:
-            clear_rate_limit(rate_key)
-            session.clear()
-            session.permanent = True
-            session['user'] = username
-            session['role'] = role
-            log_auth_event(username, role, 'staff_login', True, request.remote_addr)
-            return redirect(url_for('dashboard'))
-        else:
-            log_auth_event(username, None, 'staff_login_failed', False, request.remote_addr)
-            flash('Invalid credentials', 'error')
-    return render_template('login.html')
+# The real staff login form is served at STAFF_LOGIN_PATH (see top of file).
+# The well-known URLs below are decoys that send visitors to the student
+# login page, so curious students are never shown the staff form.
+if STAFF_LOGIN_PATH != '/login':
+    @app.route('/login', methods=['GET', 'POST'])
+    def login():
+        return redirect(url_for('login_choice'))
+
+if STAFF_LOGIN_PATH != '/admin/login':
+    @app.route('/admin/login', methods=['GET', 'POST'])
+    def legacy_admin_login_redirect():
+        return redirect(url_for('login_choice'))
 
 
 @app.route('/student_login')
 def student_login_redirect():
     return redirect(url_for('student_login'))
 
-@app.route('/admin/login', methods=['GET', 'POST'])
+@app.route(STAFF_LOGIN_PATH, methods=['GET', 'POST'])
 def admin_login():
     if request.method == 'POST':
         username = request.form.get('username', '').strip()
@@ -410,7 +402,7 @@ def student_login():
 @app.route('/change_password', methods=['GET', 'POST'])
 def change_password():
     if 'user' not in session:
-        return redirect(url_for('login'))
+        return redirect(url_for('login_choice'))
     if request.method == 'POST':
         current = request.form.get('current_password', '')
         new = request.form.get('new_password', '')
@@ -603,7 +595,7 @@ def student_magic_login():
 @app.route('/magic_qr')
 def magic_qr():
     if 'user' not in session or session['role'] not in ['admin', 'instructor']:
-        return redirect(url_for('login'))
+        return redirect(url_for('login_choice'))
     student_id = request.args.get('student_id')
     session_token = request.args.get('session_token')
     if not student_id:
@@ -644,13 +636,13 @@ def student_view_attendance():
 @app.route('/logout')
 def logout():
     session.clear()
-    return redirect(url_for('login'))
+    return redirect(url_for('login_choice'))
 
 # ---------- Dashboard (role-based) ----------
 @app.route('/dashboard')
 def dashboard():
     if 'user' not in session:
-        return redirect(url_for('login'))
+        return redirect(url_for('login_choice'))
     courses = get_all_courses()
     announcements = get_announcements()
     return render_template('dashboard.html', courses=courses, announcements=announcements)
@@ -742,7 +734,7 @@ def attendance_checkin():
 @app.route('/attendance/session', methods=['GET', 'POST'])
 def attendance_session():
     if 'user' not in session or session['role'] not in ['admin', 'instructor']:
-        return redirect(url_for('login'))
+        return redirect(url_for('login_choice'))
 
     course_code = request.args.get('course', 'CS101')
     selected_date = request.args.get('date', datetime.now().strftime('%Y-%m-%d'))
@@ -806,7 +798,7 @@ def attendance_select_course():
 @app.route('/manage_attendance')
 def manage_attendance():
     if 'user' not in session or session['role'] not in ['admin', 'instructor']:
-        return redirect(url_for('login'))
+        return redirect(url_for('login_choice'))
     course_code = request.args.get('course', 'CS101')
     selected_date = request.args.get('date', datetime.now().strftime('%Y-%m-%d'))
     records = get_attendance_by_date_and_course(selected_date, course_code)
@@ -822,7 +814,7 @@ def manage_attendance():
 @app.route('/update_attendance_status', methods=['POST'])
 def update_attendance_status_route():
     if 'user' not in session or session['role'] not in ['admin', 'instructor']:
-        return redirect(url_for('login'))
+        return redirect(url_for('login_choice'))
     record_id = request.form.get('record_id')
     status = request.form.get('status')
     if status not in ALLOWED_STATUSES:
@@ -837,7 +829,7 @@ def update_attendance_status_route():
 @app.route('/export_attendance')
 def export_attendance():
     if 'user' not in session or session['role'] not in ['admin', 'instructor']:
-        return redirect(url_for('login'))
+        return redirect(url_for('login_choice'))
     course_code = request.args.get('course')
     date = request.args.get('date')
     records = get_attendance_by_date_and_course(date, course_code)
@@ -902,7 +894,7 @@ def poll_results():
 @app.route('/create_poll', methods=['GET', 'POST'])
 def create_poll_route():
     if 'user' not in session or session['role'] not in ['admin', 'instructor']:
-        return redirect(url_for('login'))
+        return redirect(url_for('login_choice'))
     if request.method == 'POST':
         course_code = request.form.get('course_code', '').strip()
         question = request.form.get('question', '').strip()
@@ -973,7 +965,7 @@ def build_gradebook(course_code):
 @app.route('/assignments', methods=['GET', 'POST'])
 def assignments():
     if not staff_required():
-        return redirect(url_for('login'))
+        return redirect(url_for('login_choice'))
     if request.method == 'POST':
         course_code = request.form.get('course_code', '').strip()
         title = request.form.get('title', '').strip()
@@ -1013,7 +1005,7 @@ def assignments():
 @app.route('/assignment/<int:assignment_id>', methods=['GET', 'POST'])
 def assignment_detail(assignment_id):
     if not staff_required():
-        return redirect(url_for('login'))
+        return redirect(url_for('login_choice'))
     assignment = get_assignment_by_id(assignment_id)
     if not assignment:
         flash('Assignment not found.', 'error')
@@ -1088,7 +1080,7 @@ def student_submit_assignment(assignment_id):
 @app.route('/quizzes', methods=['GET', 'POST'])
 def quizzes():
     if not staff_required():
-        return redirect(url_for('login'))
+        return redirect(url_for('login_choice'))
     if request.method == 'POST':
         course_code = request.form.get('course_code', '').strip()
         title = request.form.get('title', '').strip()
@@ -1139,7 +1131,7 @@ def quizzes():
 @app.route('/quiz/<int:quiz_id>', methods=['GET', 'POST'])
 def quiz_detail(quiz_id):
     if not staff_required():
-        return redirect(url_for('login'))
+        return redirect(url_for('login_choice'))
     quiz = get_quiz_by_id(quiz_id, include_answers=True)
     if not quiz:
         flash('Quiz not found.', 'error')
@@ -1208,7 +1200,7 @@ def student_take_quiz(quiz_id):
 @app.route('/gradebook')
 def gradebook():
     if not staff_required():
-        return redirect(url_for('login'))
+        return redirect(url_for('login_choice'))
     courses = get_all_courses()
     course_code = request.args.get('course', '').strip()
     if course_code not in {c['code'] for c in courses}:
@@ -1220,7 +1212,7 @@ def gradebook():
 @app.route('/export_grades')
 def export_grades():
     if not staff_required():
-        return redirect(url_for('login'))
+        return redirect(url_for('login_choice'))
     course_code = request.args.get('course', '').strip()
     if course_code not in {c['code'] for c in get_all_courses()}:
         flash('Invalid course selected.', 'error')
@@ -1285,7 +1277,7 @@ def student_grades():
 @app.route('/admin/students', methods=['GET', 'POST'])
 def admin_students():
     if 'user' not in session or session['role'] != 'admin':
-        return redirect(url_for('login'))
+        return redirect(url_for('login_choice'))
     if request.method == 'POST':
         action = request.form.get('action')
         if action == 'add':
@@ -1322,7 +1314,7 @@ def admin_students():
 @app.route('/admin/students/edit', methods=['GET', 'POST'])
 def admin_edit_student():
     if 'user' not in session or session['role'] != 'admin':
-        return redirect(url_for('login'))
+        return redirect(url_for('login_choice'))
     student_id = request.values.get('student_id')
     if request.method == 'POST':
         student_id = request.form.get('student_id', '').strip()
@@ -1349,7 +1341,7 @@ def admin_edit_student():
 @app.route('/admin/users', methods=['GET', 'POST'])
 def admin_users():
     if 'user' not in session or session['role'] != 'admin':
-        return redirect(url_for('login'))
+        return redirect(url_for('login_choice'))
     if request.method == 'POST':
         username = request.form.get('username', '').strip()
         password = request.form.get('password', '').strip()
@@ -1371,7 +1363,7 @@ def admin_users():
 @app.route('/admin/courses', methods=['GET', 'POST'])
 def admin_courses():
     if 'user' not in session or session['role'] != 'admin':
-        return redirect(url_for('login'))
+        return redirect(url_for('login_choice'))
     if request.method == 'POST':
         code = request.form.get('code', '').strip()
         name = request.form.get('name', '').strip()
@@ -1390,7 +1382,7 @@ def admin_courses():
 @app.route('/admin/announcements', methods=['GET', 'POST'])
 def admin_announcements():
     if 'user' not in session or session['role'] != 'admin':
-        return redirect(url_for('login'))
+        return redirect(url_for('login_choice'))
     if request.method == 'POST':
         title = request.form.get('title', '').strip()
         content = request.form.get('content', '').strip()
@@ -1455,7 +1447,7 @@ def admin_announcements():
 @app.route('/admin/announcements/delete', methods=['POST'])
 def admin_delete_announcement():
     if 'user' not in session or session['role'] != 'admin':
-        return redirect(url_for('login'))
+        return redirect(url_for('login_choice'))
     announcement_id = request.form.get('announcement_id')
     if announcement_id:
         delete_announcement(announcement_id)
@@ -1467,7 +1459,7 @@ def admin_delete_announcement():
 @app.route('/admin/email_test', methods=['GET', 'POST'])
 def admin_email_test():
     if 'user' not in session or session['role'] != 'admin':
-        return redirect(url_for('login'))
+        return redirect(url_for('login_choice'))
 
     if request.method == 'POST':
         recipient = request.form.get('recipient', '').strip()
@@ -1556,7 +1548,7 @@ def student_register():
 @app.route('/admin')
 def admin_panel():
     if 'user' not in session or session['role'] != 'admin':
-        return redirect(url_for('login'))
+        return redirect(url_for('login_choice'))
     stats = {
         'students': get_total_students(),
         'courses': len(get_all_courses()),
@@ -1574,7 +1566,7 @@ def admin_panel():
 
 @app.route('/admin/courses/delete', methods=['POST'])
 def admin_delete_course():
-    if 'user' not in session or session['role'] != 'admin': return redirect(url_for('login'))
+    if 'user' not in session or session['role'] != 'admin': return redirect(url_for('login_choice'))
     code = request.form['code']
     delete_course(code)
     flash('Course deleted', 'success')
@@ -1582,7 +1574,7 @@ def admin_delete_course():
 
 @app.route('/admin/users/delete', methods=['POST'])
 def admin_delete_user():
-    if 'user' not in session or session['role'] != 'admin': return redirect(url_for('login'))
+    if 'user' not in session or session['role'] != 'admin': return redirect(url_for('login_choice'))
     user_id = request.form['user_id']
     delete_user(user_id)
     flash('User deleted', 'success')

@@ -6,6 +6,7 @@ import json
 import pytest
 
 import database
+from app import STAFF_LOGIN_PATH
 
 
 @pytest.fixture()
@@ -20,7 +21,7 @@ def client(tmp_path, monkeypatch):
 
 
 def login_admin(client):
-    return client.post('/admin/login', data={'username': 'admin', 'password': 'admin123'})
+    return client.post(STAFF_LOGIN_PATH, data={'username': 'admin', 'password': 'admin123'})
 
 
 def login_student(client):

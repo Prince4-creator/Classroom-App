@@ -1,6 +1,6 @@
 import pytest
 
-from app import app
+from app import app, STAFF_LOGIN_PATH
 from utils import check_rate_limit, validate_email, validate_student_id
 
 
@@ -26,7 +26,7 @@ def test_rate_limit_helper_blocks_after_limit():
 
 
 def test_admin_login_rejects_invalid_username(client):
-    response = client.post('/admin/login', data={'username': 'ab', 'password': 'secret123'}, follow_redirects=True)
+    response = client.post(STAFF_LOGIN_PATH, data={'username': 'ab', 'password': 'secret123'}, follow_redirects=True)
     assert response.status_code == 200
     assert b'Invalid username format' in response.data
 
