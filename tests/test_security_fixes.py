@@ -267,5 +267,21 @@ def test_https_form_post_with_same_origin_referrer_succeeds(tmp_path, monkeypatc
                 },
             )
             assert r.status_code == 302  # login succeeds, not a 400 referrer error
+
+            # Privacy browsers omit Referer entirely; with WTF_CSRF_SSL_STRICT
+            # disabled the CSRF token alone must be enough.
+            clear_rate_limit('admin_login:127.0.0.1:admin')
+            page = c.get(STAFF_LOGIN_PATH)
+            token = re.search(rb'name="csrf_token" value="([^"]+)"', page.data).group(1).decode()
+            r = c.post(
+                STAFF_LOGIN_PATH,
+                data={'username': 'admin', 'password': 'admin123', 'csrf_token': token},
+                environ_overrides={
+                    'wsgi.url_scheme': 'https',
+                    'HTTP_HOST': 'localhost',
+                    'SERVER_NAME': 'localhost',
+                },
+            )
+            assert r.status_code == 302
     finally:
         app.config.update(WTF_CSRF_ENABLED=False)

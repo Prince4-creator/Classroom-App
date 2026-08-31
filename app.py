@@ -75,6 +75,10 @@ app.config.update({
     'PERMANENT_SESSION_LIFETIME': timedelta(minutes=30),
     'SESSION_REFRESH_EACH_REQUEST': True,
     'WTF_CSRF_ENABLED': not bool(os.environ.get('FLASK_ENV') == 'testing'),
+    # Privacy browsers/proxies omit the Referer header, which made every HTTPS
+    # form POST fail the SSL-strict check. The CSRF token + SameSite=Lax cookie
+    # already protect against cross-site request forgery.
+    'WTF_CSRF_SSL_STRICT': False,
 })
 
 # Enable CSRF protection
