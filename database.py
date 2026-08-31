@@ -186,6 +186,63 @@ def init_db():
             detected_at TEXT NOT NULL
         )''')
 
+        c.execute('''CREATE TABLE IF NOT EXISTS assignments (
+            id SERIAL PRIMARY KEY,
+            course_code TEXT NOT NULL,
+            title TEXT NOT NULL,
+            description TEXT,
+            due_at TEXT,
+            max_score DOUBLE PRECISION DEFAULT 100,
+            created_by TEXT,
+            created_at TEXT NOT NULL,
+            active INTEGER DEFAULT 1
+        )''')
+
+        c.execute('''CREATE TABLE IF NOT EXISTS submissions (
+            id SERIAL PRIMARY KEY,
+            assignment_id INTEGER NOT NULL,
+            student_id TEXT NOT NULL,
+            filename TEXT,
+            original_filename TEXT,
+            notes TEXT,
+            submitted_at TEXT NOT NULL,
+            score DOUBLE PRECISION,
+            feedback TEXT,
+            graded_by TEXT,
+            graded_at TEXT,
+            UNIQUE(assignment_id, student_id)
+        )''')
+
+        c.execute('''CREATE TABLE IF NOT EXISTS quizzes (
+            id SERIAL PRIMARY KEY,
+            course_code TEXT NOT NULL,
+            title TEXT NOT NULL,
+            duration_minutes INTEGER DEFAULT 10,
+            max_attempts INTEGER DEFAULT 1,
+            created_by TEXT,
+            created_at TEXT NOT NULL,
+            active INTEGER DEFAULT 1
+        )''')
+
+        c.execute('''CREATE TABLE IF NOT EXISTS quiz_questions (
+            id SERIAL PRIMARY KEY,
+            quiz_id INTEGER NOT NULL,
+            question TEXT NOT NULL,
+            options TEXT NOT NULL,
+            correct_option TEXT NOT NULL,
+            points DOUBLE PRECISION DEFAULT 1
+        )''')
+
+        c.execute('''CREATE TABLE IF NOT EXISTS quiz_attempts (
+            id SERIAL PRIMARY KEY,
+            quiz_id INTEGER NOT NULL,
+            student_id TEXT NOT NULL,
+            answers TEXT,
+            score DOUBLE PRECISION,
+            max_score DOUBLE PRECISION,
+            submitted_at TEXT NOT NULL
+        )''')
+
         # Enforce one vote per student per poll (SQLite schema has UNIQUE too)
         c.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_votes_poll_student ON votes (poll_id, student_id)")
 
@@ -388,6 +445,63 @@ def init_db():
             fraud_type TEXT NOT NULL,
             details TEXT,
             detected_at TEXT NOT NULL
+        )''')
+
+        c_sql.execute('''CREATE TABLE IF NOT EXISTS assignments (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            course_code TEXT NOT NULL,
+            title TEXT NOT NULL,
+            description TEXT,
+            due_at TEXT,
+            max_score REAL DEFAULT 100,
+            created_by TEXT,
+            created_at TEXT NOT NULL,
+            active INTEGER DEFAULT 1
+        )''')
+
+        c_sql.execute('''CREATE TABLE IF NOT EXISTS submissions (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            assignment_id INTEGER NOT NULL,
+            student_id TEXT NOT NULL,
+            filename TEXT,
+            original_filename TEXT,
+            notes TEXT,
+            submitted_at TEXT NOT NULL,
+            score REAL,
+            feedback TEXT,
+            graded_by TEXT,
+            graded_at TEXT,
+            UNIQUE(assignment_id, student_id)
+        )''')
+
+        c_sql.execute('''CREATE TABLE IF NOT EXISTS quizzes (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            course_code TEXT NOT NULL,
+            title TEXT NOT NULL,
+            duration_minutes INTEGER DEFAULT 10,
+            max_attempts INTEGER DEFAULT 1,
+            created_by TEXT,
+            created_at TEXT NOT NULL,
+            active INTEGER DEFAULT 1
+        )''')
+
+        c_sql.execute('''CREATE TABLE IF NOT EXISTS quiz_questions (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            quiz_id INTEGER NOT NULL,
+            question TEXT NOT NULL,
+            options TEXT NOT NULL,
+            correct_option TEXT NOT NULL,
+            points REAL DEFAULT 1
+        )''')
+
+        c_sql.execute('''CREATE TABLE IF NOT EXISTS quiz_attempts (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            quiz_id INTEGER NOT NULL,
+            student_id TEXT NOT NULL,
+            answers TEXT,
+            score REAL,
+            max_score REAL,
+            submitted_at TEXT NOT NULL
         )''')
 
     # Announcements saved with '' course_code were invisible to students
@@ -1010,3 +1124,240 @@ def close_poll(poll_id):
     c.execute("UPDATE polls SET active=0 WHERE id=?", (poll_id,))
     conn.commit()
     conn.close()
+
+# ------- Assignments & submissions -------
+
+def create_assignment(course_code, title, description, due_at, max_score, created_by):
+    conn = get_conn()
+    c = conn.cursor()
+    now = datetime.now().isoformat()
+    if USE_POSTGRES:
+        c.execute("INSERT INTO assignments (course_code, title, description, due_at, max_score, created_by, created_at, active) "
+                  "VALUES (%s, %s, %s, %s, %s, %s, %s, 1) RETURNING id",
+                  (course_code, title, description, due_at, max_score, created_by, now))
+        assignment_id = c.fetchone()[0]
+    else:
+        c.execute("INSERT INTO assignments (course_code, title, description, due_at, max_score, created_by, created_at, active) "
+                  "VALUES (?,?,?,?,?,?,?,1)",
+                  (course_code, title, description, due_at, max_score, created_by, now))
+        assignment_id = c.lastrowid
+    conn.commit()
+    conn.close()
+    return assignment_id
+
+def get_assignments(course_code=None):
+    conn = get_conn()
+    c = conn.cursor()
+    if course_code:
+        c.execute("SELECT id, course_code, title, description, due_at, max_score, created_by, created_at, active "
+                  "FROM assignments WHERE course_code=? ORDER BY created_at DESC", (course_code,))
+    else:
+        c.execute("SELECT id, course_code, title, description, due_at, max_score, created_by, created_at, active "
+                  "FROM assignments ORDER BY created_at DESC")
+    rows = c.fetchall()
+    conn.close()
+    return [
+        {'id': r[0], 'course_code': r[1], 'title': r[2], 'description': r[3],
+         'due_at': r[4], 'max_score': r[5], 'created_by': r[6], 'created_at': r[7],
+         'active': bool(r[8])} for r in rows]
+
+def get_assignment_by_id(assignment_id):
+    conn = get_conn()
+    c = conn.cursor()
+    c.execute("SELECT id, course_code, title, description, due_at, max_score, created_by, created_at, active "
+              "FROM assignments WHERE id=?", (assignment_id,))
+    r = c.fetchone()
+    conn.close()
+    if not r:
+        return None
+    return {'id': r[0], 'course_code': r[1], 'title': r[2], 'description': r[3],
+            'due_at': r[4], 'max_score': r[5], 'created_by': r[6], 'created_at': r[7],
+            'active': bool(r[8])}
+
+def close_assignment(assignment_id):
+    conn = get_conn()
+    c = conn.cursor()
+    c.execute("UPDATE assignments SET active=0 WHERE id=?", (assignment_id,))
+    conn.commit()
+    conn.close()
+
+def submit_assignment(assignment_id, student_id, filename, original_filename, notes):
+    conn = get_conn()
+    c = conn.cursor()
+    now = datetime.now().isoformat()
+    try:
+        c.execute("INSERT INTO submissions (assignment_id, student_id, filename, original_filename, notes, submitted_at) "
+                  "VALUES (?,?,?,?,?,?)",
+                  (assignment_id, student_id, filename, original_filename, notes, now))
+        conn.commit()
+        return True
+    except Exception:
+        return False
+    finally:
+        conn.close()
+
+def get_submissions(assignment_id):
+    conn = get_conn()
+    c = conn.cursor()
+    c.execute("""SELECT s.id, s.student_id, st.name, s.filename, s.original_filename, s.notes,
+                        s.submitted_at, s.score, s.feedback, s.graded_by, s.graded_at
+                 FROM submissions s LEFT JOIN students st ON st.student_id = s.student_id
+                 WHERE s.assignment_id=? ORDER BY s.submitted_at""", (assignment_id,))
+    rows = c.fetchall()
+    conn.close()
+    return [
+        {'id': r[0], 'student_id': r[1], 'name': r[2] or r[1], 'filename': r[3],
+         'original_filename': r[4], 'notes': r[5], 'submitted_at': r[6], 'score': r[7],
+         'feedback': r[8], 'graded_by': r[9], 'graded_at': r[10]} for r in rows]
+
+def get_submission(assignment_id, student_id):
+    conn = get_conn()
+    c = conn.cursor()
+    c.execute("SELECT id, assignment_id, student_id, filename, original_filename, notes, submitted_at, "
+              "score, feedback, graded_by, graded_at FROM submissions WHERE assignment_id=? AND student_id=?",
+              (assignment_id, student_id))
+    r = c.fetchone()
+    conn.close()
+    if not r:
+        return None
+    return {'id': r[0], 'assignment_id': r[1], 'student_id': r[2], 'filename': r[3],
+            'original_filename': r[4], 'notes': r[5], 'submitted_at': r[6], 'score': r[7],
+            'feedback': r[8], 'graded_by': r[9], 'graded_at': r[10]}
+
+def grade_submission(submission_id, score, feedback, graded_by):
+    conn = get_conn()
+    c = conn.cursor()
+    c.execute("UPDATE submissions SET score=?, feedback=?, graded_by=?, graded_at=? WHERE id=?",
+              (score, feedback, graded_by, datetime.now().isoformat(), submission_id))
+    conn.commit()
+    changed = c.rowcount if hasattr(c, 'rowcount') else 0
+    conn.close()
+    return changed > 0
+
+# ------- Quizzes -------
+
+def create_quiz(course_code, title, duration_minutes, max_attempts, created_by, questions):
+    conn = get_conn()
+    c = conn.cursor()
+    now = datetime.now().isoformat()
+    if USE_POSTGRES:
+        c.execute("INSERT INTO quizzes (course_code, title, duration_minutes, max_attempts, created_by, created_at, active) "
+                  "VALUES (%s, %s, %s, %s, %s, %s, 1) RETURNING id",
+                  (course_code, title, duration_minutes, max_attempts, created_by, now))
+        quiz_id = c.fetchone()[0]
+    else:
+        c.execute("INSERT INTO quizzes (course_code, title, duration_minutes, max_attempts, created_by, created_at, active) "
+                  "VALUES (?,?,?,?,?,?,1)",
+                  (course_code, title, duration_minutes, max_attempts, created_by, now))
+        quiz_id = c.lastrowid
+    for q in questions:
+        c.execute("INSERT INTO quiz_questions (quiz_id, question, options, correct_option, points) VALUES (?,?,?,?,?)",
+                  (quiz_id, q['question'], json.dumps(q['options']), q['correct_option'], q.get('points', 1)))
+    conn.commit()
+    conn.close()
+    return quiz_id
+
+def get_quizzes(course_code=None):
+    conn = get_conn()
+    c = conn.cursor()
+    if course_code:
+        c.execute("""SELECT q.id, q.course_code, q.title, q.duration_minutes, q.max_attempts,
+                            q.created_at, q.active, COUNT(qq.id)
+                     FROM quizzes q LEFT JOIN quiz_questions qq ON qq.quiz_id = q.id
+                     WHERE q.course_code=? GROUP BY q.id ORDER BY q.created_at DESC""", (course_code,))
+    else:
+        c.execute("""SELECT q.id, q.course_code, q.title, q.duration_minutes, q.max_attempts,
+                            q.created_at, q.active, COUNT(qq.id)
+                     FROM quizzes q LEFT JOIN quiz_questions qq ON qq.quiz_id = q.id
+                     GROUP BY q.id ORDER BY q.created_at DESC""")
+    rows = c.fetchall()
+    conn.close()
+    return [
+        {'id': r[0], 'course_code': r[1], 'title': r[2], 'duration_minutes': r[3],
+         'max_attempts': r[4], 'created_at': r[5], 'active': bool(r[6]), 'question_count': r[7]}
+        for r in rows]
+
+def get_quiz_by_id(quiz_id, include_answers=False):
+    conn = get_conn()
+    c = conn.cursor()
+    c.execute("SELECT id, course_code, title, duration_minutes, max_attempts, created_at, active FROM quizzes WHERE id=?",
+              (quiz_id,))
+    r = c.fetchone()
+    if not r:
+        conn.close()
+        return None
+    quiz = {'id': r[0], 'course_code': r[1], 'title': r[2], 'duration_minutes': r[3],
+            'max_attempts': r[4], 'created_at': r[5], 'active': bool(r[6]), 'questions': []}
+    c.execute("SELECT id, question, options, correct_option, points FROM quiz_questions WHERE quiz_id=? ORDER BY id",
+              (quiz_id,))
+    for q in c.fetchall():
+        item = {'id': q[0], 'question': q[1], 'options': json.loads(q[2]), 'points': q[4]}
+        if include_answers:
+            item['correct_option'] = q[3]
+        quiz['questions'].append(item)
+    conn.close()
+    return quiz
+
+def close_quiz(quiz_id):
+    conn = get_conn()
+    c = conn.cursor()
+    c.execute("UPDATE quizzes SET active=0 WHERE id=?", (quiz_id,))
+    conn.commit()
+    conn.close()
+
+def get_quiz_attempt_count(quiz_id, student_id):
+    conn = get_conn()
+    c = conn.cursor()
+    c.execute("SELECT COUNT(*) FROM quiz_attempts WHERE quiz_id=? AND student_id=?", (quiz_id, student_id))
+    count = c.fetchone()[0]
+    conn.close()
+    return count
+
+def record_quiz_attempt(quiz_id, student_id, answers, score, max_score):
+    conn = get_conn()
+    c = conn.cursor()
+    now = datetime.now().isoformat()
+    if USE_POSTGRES:
+        c.execute("INSERT INTO quiz_attempts (quiz_id, student_id, answers, score, max_score, submitted_at) "
+                  "VALUES (%s, %s, %s, %s, %s, %s) RETURNING id",
+                  (quiz_id, student_id, json.dumps(answers), score, max_score, now))
+        attempt_id = c.fetchone()[0]
+    else:
+        c.execute("INSERT INTO quiz_attempts (quiz_id, student_id, answers, score, max_score, submitted_at) "
+                  "VALUES (?,?,?,?,?,?)",
+                  (quiz_id, student_id, json.dumps(answers), score, max_score, now))
+        attempt_id = c.lastrowid
+    conn.commit()
+    conn.close()
+    return attempt_id
+
+def get_quiz_attempts(quiz_id):
+    conn = get_conn()
+    c = conn.cursor()
+    c.execute("""SELECT qa.id, qa.student_id, st.name, qa.score, qa.max_score, qa.submitted_at
+                 FROM quiz_attempts qa LEFT JOIN students st ON st.student_id = qa.student_id
+                 WHERE qa.quiz_id=? ORDER BY qa.submitted_at""", (quiz_id,))
+    rows = c.fetchall()
+    conn.close()
+    return [
+        {'id': r[0], 'student_id': r[1], 'name': r[2] or r[1], 'score': r[3],
+         'max_score': r[4], 'submitted_at': r[5]} for r in rows]
+
+def get_student_quiz_attempts(quiz_id, student_id):
+    conn = get_conn()
+    c = conn.cursor()
+    c.execute("SELECT id, score, max_score, submitted_at FROM quiz_attempts WHERE quiz_id=? AND student_id=? "
+              "ORDER BY submitted_at DESC", (quiz_id, student_id))
+    rows = c.fetchall()
+    conn.close()
+    return [{'id': r[0], 'score': r[1], 'max_score': r[2], 'submitted_at': r[3]} for r in rows]
+
+# ------- Gradebook helpers -------
+
+def get_course_students(course_code):
+    conn = get_conn()
+    c = conn.cursor()
+    c.execute("SELECT student_id, name FROM students WHERE class_code=? ORDER BY name", (course_code,))
+    rows = c.fetchall()
+    conn.close()
+    return [{'student_id': r[0], 'name': r[1]} for r in rows]

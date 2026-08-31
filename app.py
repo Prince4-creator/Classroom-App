@@ -16,6 +16,7 @@ from utils import (
 from datetime import datetime, timedelta
 import csv
 import io
+import json
 import os
 from dotenv import load_dotenv
 
@@ -88,12 +89,22 @@ def allowed_file(filename):
 def upload_to_supabase(filename, file_stream, content_type='application/octet-stream'):
     if not supabase:
         return False
+    bucket = supabase.storage.from_(SUPABASE_BUCKET)
     try:
-        resp = supabase.storage.from_(SUPABASE_BUCKET).upload(filename, file_stream, content_type=content_type)
-        return resp.get('data') is not None
+        resp = bucket.upload(filename, file_stream,
+                             file_options={'content-type': content_type, 'upsert': 'true'})
+    except TypeError:
+        try:
+            resp = bucket.upload(filename, file_stream, content_type=content_type)
+        except Exception as e:
+            print('Supabase upload failed:', e)
+            return False
     except Exception as e:
         print('Supabase upload failed:', e)
         return False
+    if isinstance(resp, dict):
+        return bool(resp)
+    return getattr(resp, 'data', resp) is not None
 
 
 def get_supabase_download_url(filename):
@@ -101,7 +112,9 @@ def get_supabase_download_url(filename):
         return None
     try:
         url_data = supabase.storage.from_(SUPABASE_BUCKET).create_signed_url(filename, 3600)
-        return url_data.get('signedURL')
+        if isinstance(url_data, dict):
+            return url_data.get('signedURL') or url_data.get('signed_url')
+        return getattr(url_data, 'signed_url', None) or getattr(url_data, 'signedURL', None)
     except Exception as e:
         print('Supabase signed URL failed:', e)
         return None
@@ -464,9 +477,22 @@ def student_assignments():
     if not student:
         session.clear()
         return redirect(url_for('student_login'))
+    assignments = get_assignments(student['class_code'])
+    for a in assignments:
+        a['my_submission'] = get_submission(a['id'], session['student_id'])
+        a['overdue'] = assignment_is_overdue(a)
     announcements = get_announcements(student['class_code'])
-    assignments = [a for a in announcements if a['announcement_type'] in ('assignment', 'exercise')]
-    return render_template('student_assignments.html', student=student, assignments=assignments)
+    posts = [a for a in announcements if a['announcement_type'] in ('assignment', 'exercise')]
+    return render_template('student_assignments.html', student=student, assignments=assignments, posts=posts)
+
+
+def assignment_is_overdue(assignment):
+    if not assignment.get('due_at') or not assignment.get('active'):
+        return False
+    try:
+        return datetime.now() > datetime.fromisoformat(assignment['due_at'])
+    except (ValueError, TypeError):
+        return False
 
 @app.route('/student/mark_attendance', methods=['GET', 'POST'])
 def student_mark_attendance():
@@ -893,6 +919,367 @@ def create_poll_route():
         return redirect(url_for('dashboard'))
     courses = get_all_courses()
     return render_template('create_poll.html', courses=courses)
+
+# ---------- Assignments & Gradebook ----------
+
+def staff_required():
+    return 'user' in session and session.get('role') in ('admin', 'instructor')
+
+
+def build_gradebook(course_code):
+    """Aggregate graded assignments and best quiz attempts per student."""
+    students = get_course_students(course_code)
+    assignments = get_assignments(course_code)
+    quizzes = get_quizzes(course_code)
+    sub_by_assignment = {a['id']: {s['student_id']: s for s in get_submissions(a['id'])} for a in assignments}
+    att_by_quiz = {}
+    for q in quizzes:
+        best = {}
+        for att in get_quiz_attempts(q['id']):
+            prev = best.get(att['student_id'])
+            if prev is None or att['score'] > prev['score']:
+                best[att['student_id']] = att
+        att_by_quiz[q['id']] = best
+    rows = []
+    for st in students:
+        cells = []
+        earned_total = 0.0
+        possible_total = 0.0
+        for a in assignments:
+            sub = sub_by_assignment[a['id']].get(st['student_id'])
+            if sub and sub['score'] is not None:
+                cells.append({'label': a['title'], 'score': sub['score'], 'max': a['max_score']})
+                earned_total += float(sub['score'])
+                possible_total += float(a['max_score'])
+            elif sub:
+                cells.append({'label': a['title'], 'score': None, 'max': a['max_score'], 'pending': True})
+            else:
+                cells.append({'label': a['title'], 'score': None, 'max': a['max_score'], 'missing': True})
+        for q in quizzes:
+            att = att_by_quiz[q['id']].get(st['student_id'])
+            if att:
+                cells.append({'label': q['title'], 'score': att['score'], 'max': att['max_score']})
+                earned_total += float(att['score'])
+                possible_total += float(att['max_score'])
+            else:
+                cells.append({'label': q['title'], 'score': None, 'max': None, 'missing': True})
+        percent = round(earned_total / possible_total * 100, 1) if possible_total else None
+        rows.append({'student_id': st['student_id'], 'name': st['name'], 'cells': cells, 'percent': percent})
+    columns = [{'type': 'assignment', 'title': a['title']} for a in assignments] + \
+              [{'type': 'quiz', 'title': q['title']} for q in quizzes]
+    return {'rows': rows, 'columns': columns}
+
+
+@app.route('/assignments', methods=['GET', 'POST'])
+def assignments():
+    if not staff_required():
+        return redirect(url_for('login'))
+    if request.method == 'POST':
+        course_code = request.form.get('course_code', '').strip()
+        title = request.form.get('title', '').strip()
+        description = request.form.get('description', '').strip()
+        due_at = request.form.get('due_at', '').strip() or None
+        max_score_raw = request.form.get('max_score', '').strip()
+        try:
+            max_score = float(max_score_raw)
+        except ValueError:
+            max_score = None
+        if course_code not in {c['code'] for c in get_all_courses()}:
+            flash('Invalid course selected.', 'error')
+        elif len(title) < 3:
+            flash('Assignment title must be at least 3 characters.', 'error')
+        elif max_score is None or max_score <= 0:
+            flash('Max score must be a positive number.', 'error')
+        elif due_at:
+            try:
+                datetime.fromisoformat(due_at)
+            except ValueError:
+                flash('Invalid due date format.', 'error')
+                return redirect(url_for('assignments'))
+            create_assignment(course_code, title, description, due_at, max_score, session['user'])
+            flash(f'Assignment "{title}" created for {course_code}.', 'success')
+            return redirect(url_for('assignments'))
+        else:
+            create_assignment(course_code, title, description, due_at, max_score, session['user'])
+            flash(f'Assignment "{title}" created for {course_code}.', 'success')
+            return redirect(url_for('assignments'))
+    course_filter = request.args.get('course', '').strip()
+    items = get_assignments(course_filter or None)
+    counts = {a['id']: len(get_submissions(a['id'])) for a in items}
+    return render_template('assignments.html', assignments=items, courses=get_all_courses(),
+                           selected_course=course_filter, counts=counts)
+
+
+@app.route('/assignment/<int:assignment_id>', methods=['GET', 'POST'])
+def assignment_detail(assignment_id):
+    if not staff_required():
+        return redirect(url_for('login'))
+    assignment = get_assignment_by_id(assignment_id)
+    if not assignment:
+        flash('Assignment not found.', 'error')
+        return redirect(url_for('assignments'))
+    if request.method == 'POST':
+        action = request.form.get('action')
+        if action == 'close':
+            close_assignment(assignment_id)
+            flash('Assignment closed for new submissions.', 'success')
+        elif action == 'grade':
+            try:
+                submission_id = int(request.form.get('submission_id', ''))
+                score = float(request.form.get('score', ''))
+            except ValueError:
+                flash('Invalid grading input.', 'error')
+                return redirect(url_for('assignment_detail', assignment_id=assignment_id))
+            feedback = request.form.get('feedback', '').strip()
+            submissions = {s['id']: s for s in get_submissions(assignment_id)}
+            if submission_id not in submissions:
+                flash('Submission not found for this assignment.', 'error')
+            elif score < 0 or score > float(assignment['max_score']):
+                flash(f"Score must be between 0 and {assignment['max_score']}.", 'error')
+            else:
+                grade_submission(submission_id, score, feedback, session['user'])
+                flash(f"Graded {submissions[submission_id]['student_id']}: {score}/{assignment['max_score']}.", 'success')
+        return redirect(url_for('assignment_detail', assignment_id=assignment_id))
+    submissions = get_submissions(assignment_id)
+    return render_template('assignment_detail.html', assignment=assignment, submissions=submissions)
+
+
+@app.route('/student/assignment/<int:assignment_id>/submit', methods=['POST'])
+def student_submit_assignment(assignment_id):
+    if 'student_id' not in session:
+        return redirect(url_for('student_login'))
+    student = get_student_info(session['student_id'])
+    if not student:
+        session.clear()
+        return redirect(url_for('student_login'))
+    assignment = get_assignment_by_id(assignment_id)
+    if not assignment or not assignment['active']:
+        flash('Assignment not found or closed.', 'error')
+        return redirect(url_for('student_assignments'))
+    if assignment['course_code'] != student['class_code']:
+        flash('This assignment is not for your class.', 'error')
+        return redirect(url_for('student_assignments'))
+    if assignment_is_overdue(assignment):
+        flash('The deadline for this assignment has passed.', 'error')
+        return redirect(url_for('student_assignments'))
+    if get_submission(assignment_id, session['student_id']):
+        flash('You already submitted this assignment.', 'warning')
+        return redirect(url_for('student_assignments'))
+    file = request.files.get('file')
+    if not file or not file.filename or not allowed_file(file.filename):
+        flash('Please choose a valid file to submit.', 'error')
+        return redirect(url_for('student_assignments'))
+    notes = request.form.get('notes', '').strip()[:500]
+    safe_name = secure_filename(file.filename)
+    stored_name = f"{datetime.now().strftime('%Y%m%d%H%M%S')}_{secrets.token_hex(3)}_{safe_name}"
+    if supabase:
+        uploaded = upload_to_supabase(stored_name, file.stream, file.content_type or 'application/octet-stream')
+        if not uploaded:
+            flash('Upload failed. Please try again.', 'error')
+            return redirect(url_for('student_assignments'))
+    else:
+        file.save(os.path.join(UPLOAD_FOLDER, stored_name))
+    submit_assignment(assignment_id, session['student_id'], stored_name, file.filename, notes)
+    flash(f'Submitted "{file.filename}" for {assignment["title"]}.', 'success')
+    return redirect(url_for('student_assignments'))
+
+# ---------- Quizzes ----------
+
+@app.route('/quizzes', methods=['GET', 'POST'])
+def quizzes():
+    if not staff_required():
+        return redirect(url_for('login'))
+    if request.method == 'POST':
+        course_code = request.form.get('course_code', '').strip()
+        title = request.form.get('title', '').strip()
+        try:
+            duration = int(request.form.get('duration_minutes', '10'))
+        except ValueError:
+            duration = 0
+        try:
+            max_attempts = int(request.form.get('max_attempts', '1'))
+        except ValueError:
+            max_attempts = 0
+        try:
+            questions = json.loads(request.form.get('questions_json', '[]'))
+        except ValueError:
+            questions = []
+        valid_questions = []
+        for q in questions:
+            if not isinstance(q, dict):
+                continue
+            text = str(q.get('question', '')).strip()
+            options = [str(o).strip() for o in q.get('options', []) if str(o).strip()]
+            correct = str(q.get('correct_option', '')).strip()
+            try:
+                points = float(q.get('points', 1))
+            except (ValueError, TypeError):
+                points = 0
+            if text and len(options) >= 2 and correct in options and points > 0:
+                valid_questions.append({'question': text, 'options': options, 'correct_option': correct, 'points': points})
+        if course_code not in {c['code'] for c in get_all_courses()}:
+            flash('Invalid course selected.', 'error')
+        elif len(title) < 3:
+            flash('Quiz title must be at least 3 characters.', 'error')
+        elif not 1 <= duration <= 180:
+            flash('Duration must be between 1 and 180 minutes.', 'error')
+        elif not 1 <= max_attempts <= 5:
+            flash('Attempts allowed must be between 1 and 5.', 'error')
+        elif not valid_questions:
+            flash('Add at least one complete question (text, 2+ options, correct answer, positive points).', 'error')
+        else:
+            create_quiz(course_code, title, duration, max_attempts, session['user'], valid_questions)
+            flash(f'Quiz "{title}" created for {course_code} with {len(valid_questions)} question(s).', 'success')
+            return redirect(url_for('quizzes'))
+    course_filter = request.args.get('course', '').strip()
+    items = get_quizzes(course_filter or None)
+    return render_template('quizzes.html', quizzes=items, courses=get_all_courses(), selected_course=course_filter)
+
+
+@app.route('/quiz/<int:quiz_id>', methods=['GET', 'POST'])
+def quiz_detail(quiz_id):
+    if not staff_required():
+        return redirect(url_for('login'))
+    quiz = get_quiz_by_id(quiz_id, include_answers=True)
+    if not quiz:
+        flash('Quiz not found.', 'error')
+        return redirect(url_for('quizzes'))
+    if request.method == 'POST':
+        if request.form.get('action') == 'close':
+            close_quiz(quiz_id)
+            flash('Quiz closed.', 'success')
+        return redirect(url_for('quiz_detail', quiz_id=quiz_id))
+    attempts = get_quiz_attempts(quiz_id)
+    return render_template('quiz_detail.html', quiz=quiz, attempts=attempts)
+
+
+@app.route('/student/quizzes')
+def student_quizzes():
+    if 'student_id' not in session:
+        return redirect(url_for('student_login'))
+    student = get_student_info(session['student_id'])
+    if not student:
+        session.clear()
+        return redirect(url_for('student_login'))
+    items = get_quizzes(student['class_code'])
+    for q in items:
+        q['my_attempts'] = get_student_quiz_attempts(q['id'], session['student_id'])
+        q['attempts_left'] = q['max_attempts'] - len(q['my_attempts'])
+    return render_template('student_quizzes.html', student=student, quizzes=items)
+
+
+@app.route('/student/quiz/<int:quiz_id>/take', methods=['GET', 'POST'])
+def student_take_quiz(quiz_id):
+    if 'student_id' not in session:
+        return redirect(url_for('student_login'))
+    student = get_student_info(session['student_id'])
+    if not student:
+        session.clear()
+        return redirect(url_for('student_login'))
+    quiz = get_quiz_by_id(quiz_id, include_answers=False)
+    if not quiz or not quiz['active']:
+        flash('Quiz not found or closed.', 'error')
+        return redirect(url_for('student_quizzes'))
+    if quiz['course_code'] != student['class_code']:
+        flash('This quiz is not for your class.', 'error')
+        return redirect(url_for('student_quizzes'))
+    attempts_used = get_quiz_attempt_count(quiz_id, session['student_id'])
+    if attempts_used >= quiz['max_attempts']:
+        flash('You have used all your attempts for this quiz.', 'warning')
+        return redirect(url_for('student_quizzes'))
+    if request.method == 'POST':
+        quiz_with_answers = get_quiz_by_id(quiz_id, include_answers=True)
+        score = 0.0
+        max_score = 0.0
+        answers = {}
+        for q in quiz_with_answers['questions']:
+            max_score += float(q['points'])
+            answer = request.form.get(f"q_{q['id']}", '').strip()
+            answers[str(q['id'])] = answer
+            if answer and answer in q['options'] and answer == q['correct_option']:
+                score += float(q['points'])
+        record_quiz_attempt(quiz_id, session['student_id'], answers, score, max_score)
+        flash(f'Quiz submitted — you scored {score:g} / {max_score:g}.', 'success')
+        return redirect(url_for('student_quizzes'))
+    return render_template('quiz_take.html', student=student, quiz=quiz)
+
+# ---------- Gradebook ----------
+
+@app.route('/gradebook')
+def gradebook():
+    if not staff_required():
+        return redirect(url_for('login'))
+    courses = get_all_courses()
+    course_code = request.args.get('course', '').strip()
+    if course_code not in {c['code'] for c in courses}:
+        return render_template('gradebook.html', courses=courses, selected_course=None, book=None)
+    book = build_gradebook(course_code)
+    return render_template('gradebook.html', courses=courses, selected_course=course_code, book=book)
+
+
+@app.route('/export_grades')
+def export_grades():
+    if not staff_required():
+        return redirect(url_for('login'))
+    course_code = request.args.get('course', '').strip()
+    if course_code not in {c['code'] for c in get_all_courses()}:
+        flash('Invalid course selected.', 'error')
+        return redirect(url_for('gradebook'))
+    book = build_gradebook(course_code)
+    si = io.StringIO()
+    cw = csv.writer(si)
+    cw.writerow(['Student ID', 'Name'] + [col['title'] for col in book['columns']] + ['Overall %'])
+    for row in book['rows']:
+        cell_values = []
+        for cell in row['cells']:
+            if cell['score'] is not None:
+                cell_values.append(f"{cell['score']:g}/{cell['max']:g}")
+            elif cell.get('pending'):
+                cell_values.append('submitted (ungraded)')
+            else:
+                cell_values.append('missing')
+        cw.writerow([row['student_id'], row['name']] + cell_values + [row['percent'] if row['percent'] is not None else ''])
+    output = si.getvalue()
+    return Response(output, mimetype='text/csv',
+                    headers={'Content-Disposition': f'attachment; filename=gradebook_{course_code}.csv'})
+
+
+@app.route('/student/grades')
+def student_grades():
+    if 'student_id' not in session:
+        return redirect(url_for('student_login'))
+    student = get_student_info(session['student_id'])
+    if not student:
+        session.clear()
+        return redirect(url_for('student_login'))
+    course_code = student['class_code']
+    items = []
+    earned = 0.0
+    possible = 0.0
+    for a in get_assignments(course_code):
+        sub = get_submission(a['id'], session['student_id'])
+        entry = {'kind': 'Assignment', 'title': a['title'], 'max': a['max_score'], 'score': None, 'feedback': None}
+        if sub:
+            entry['submitted_at'] = sub['submitted_at']
+            if sub['score'] is not None:
+                entry['score'] = sub['score']
+                entry['feedback'] = sub['feedback']
+                earned += float(sub['score'])
+                possible += float(a['max_score'])
+        items.append(entry)
+    for q in get_quizzes(course_code):
+        attempts = get_student_quiz_attempts(q['id'], session['student_id'])
+        best = max(attempts, key=lambda a: a['score']) if attempts else None
+        entry = {'kind': 'Quiz', 'title': q['title'], 'max': None, 'score': None, 'feedback': None}
+        if best:
+            entry['max'] = best['max_score']
+            entry['score'] = best['score']
+            entry['submitted_at'] = best['submitted_at']
+            earned += float(best['score'])
+            possible += float(best['max_score'])
+        items.append(entry)
+    percent = round(earned / possible * 100, 1) if possible else None
+    return render_template('student_grades.html', student=student, items=items, percent=percent)
 
 # ---------- Admin: Manage Students & Users & Courses ----------
 @app.route('/admin/students', methods=['GET', 'POST'])

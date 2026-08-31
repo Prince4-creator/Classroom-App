@@ -1,0 +1,73 @@
+{% extends 'base.html' %}
+{% block title %}{{ assignment.title }} - Submissions{% endblock %}
+{% block content %}
+<div class="row justify-content-center py-2">
+    <div class="col-xl-9">
+        <div class="d-flex justify-content-between align-items-center mb-3 flex-wrap gap-2">
+            <div>
+                <h1 class="h5 mb-1">{{ assignment.title }}</h1>
+                <p class="small text-muted mb-0">
+                    {{ assignment.course_code }} • Max {{ '%g'|format(assignment.max_score) }} pts
+                    {% if assignment.due_at %} • Due {{ assignment.due_at[:16]|replace('T', ' ') }}{% endif %}
+                    {% if not assignment.active %} • <span class="text-danger">Closed</span>{% endif %}
+                </p>
+            </div>
+            <div class="d-flex gap-2">
+                <a href="/assignments" class="btn btn-outline-light btn-sm">Back</a>
+                {% if assignment.active %}
+                <form method="POST">
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>
+                    <input type="hidden" name="action" value="close">
+                    <button class="btn btn-outline-light btn-sm" onclick="return confirm('Close this assignment for new submissions?')">Close</button>
+                </form>
+                {% endif %}
+            </div>
+        </div>
+
+        {% if assignment.description %}
+        <div class="app-card p-3 mb-3"><p class="small mb-0">{{ assignment.description }}</p></div>
+        {% endif %}
+
+        {% if submissions %}
+        <div class="app-card p-3 table-responsive">
+            <table class="table table-sm align-middle mb-0">
+                <thead>
+                    <tr><th>Student</th><th>File</th><th>Submitted</th><th style="min-width:260px;">Grade</th></tr>
+                </thead>
+                <tbody>
+                {% for s in submissions %}
+                    <tr>
+                        <td><strong>{{ s.student_id }}</strong><br><span class="small text-muted">{{ s.name }}</span></td>
+                        <td>
+                            {% if s.filename %}<a href="/uploads/{{ s.filename }}" class="small">{{ s.original_filename }}</a>{% else %}<span class="small text-muted">—</span>{% endif %}
+                            {% if s.notes %}<br><span class="small text-muted">Note: {{ s.notes }}</span>{% endif %}
+                        </td>
+                        <td class="small">{{ s.submitted_at[:16]|replace('T', ' ') }}</td>
+                        <td>
+                            <form method="POST" class="row g-1">
+                                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>
+                                <input type="hidden" name="action" value="grade">
+                                <input type="hidden" name="submission_id" value="{{ s.id }}">
+                                <div class="col-4">
+                                    <input type="number" name="score" class="form-control form-control-sm" min="0" max="{{ assignment.max_score }}" step="0.5" value="{{ s.score if s.score is not none else '' }}" placeholder="/{{ '%g'|format(assignment.max_score) }}" required>
+                                </div>
+                                <div class="col-5">
+                                    <input type="text" name="feedback" class="form-control form-control-sm" maxlength="300" value="{{ s.feedback or '' }}" placeholder="Feedback">
+                                </div>
+                                <div class="col-3 d-grid">
+                                    <button class="btn app-btn btn-sm">Save</button>
+                                </div>
+                            </form>
+                            {% if s.score is not none %}<span class="small text-success">Graded by {{ s.graded_by }} on {{ s.graded_at[:16]|replace('T', ' ') }}</span>{% endif %}
+                        </td>
+                    </tr>
+                {% endfor %}
+                </tbody>
+            </table>
+        </div>
+        {% else %}
+        <div class="app-card p-4"><p class="text-muted mb-0">No submissions yet.</p></div>
+        {% endif %}
+    </div>
+</div>
+{% endblock %}

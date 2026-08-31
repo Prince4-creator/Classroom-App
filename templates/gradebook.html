@@ -1,0 +1,66 @@
+{% extends 'base.html' %}
+{% block title %}Gradebook - OneMillionCoders{% endblock %}
+{% block content %}
+<div class="row justify-content-center py-2">
+    <div class="col-xl-10">
+        <div class="d-flex justify-content-between align-items-center mb-3 flex-wrap gap-2">
+            <h1 class="h5 mb-0">Gradebook</h1>
+            {% if selected_course %}
+            <a href="/export_grades?course={{ selected_course }}" class="btn btn-outline-light btn-sm">Export CSV</a>
+            {% endif %}
+        </div>
+
+        <form method="GET" class="row g-2 mb-3">
+            <div class="col-auto">
+                <select name="course" class="form-select form-select-sm" onchange="this.form.submit()">
+                    <option value="">Select a course…</option>
+                    {% for c in courses %}<option value="{{ c.code }}" {% if selected_course == c.code %}selected{% endif %}>{{ c.code }} - {{ c.name }}</option>{% endfor %}
+                </select>
+            </div>
+        </form>
+
+        {% if not selected_course %}
+        <div class="app-card p-4"><p class="text-muted mb-0">Pick a course to see grades.</p></div>
+        {% elif book.rows %}
+        <div class="app-card p-3 table-responsive">
+            <table class="table table-sm align-middle mb-0">
+                <thead>
+                    <tr>
+                        <th>Student</th>
+                        {% for col in book.columns %}
+                        <th class="small">{{ col.title }}{% if col.type == 'quiz' %} <span class="badge badge-exercise">Q</span>{% endif %}</th>
+                        {% endfor %}
+                        <th>Overall</th>
+                    </tr>
+                </thead>
+                <tbody>
+                {% for row in book.rows %}
+                    <tr>
+                        <td><strong>{{ row.student_id }}</strong><br><span class="small text-muted">{{ row.name }}</span></td>
+                        {% for cell in row.cells %}
+                        <td class="small">
+                            {% if cell.score is not none %}
+                            {{ '%g'|format(cell.score) }}/{{ '%g'|format(cell.max) }}
+                            {% elif cell.get('pending') %}
+                            <span class="text-warning">submitted</span>
+                            {% else %}
+                            <span class="text-muted">missing</span>
+                            {% endif %}
+                        </td>
+                        {% endfor %}
+                        <td>
+                            {% if row.percent is not none %}
+                            <strong class="{% if row.percent >= 70 %}text-success{% elif row.percent >= 50 %}text-warning{% else %}text-danger{% endif %}">{{ row.percent }}%</strong>
+                            {% else %}<span class="text-muted small">—</span>{% endif %}
+                        </td>
+                    </tr>
+                {% endfor %}
+                </tbody>
+            </table>
+        </div>
+        {% else %}
+        <div class="app-card p-4"><p class="text-muted mb-0">No students enrolled in this course.</p></div>
+        {% endif %}
+    </div>
+</div>
+{% endblock %}

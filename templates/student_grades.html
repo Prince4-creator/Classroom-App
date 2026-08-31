@@ -1,0 +1,42 @@
+{% extends 'base.html' %}
+{% block title %}My Grades - OneMillionCoders{% endblock %}
+{% block content %}
+<div class="row justify-content-center py-2">
+    <div class="col-xl-8">
+        <div class="d-flex justify-content-between align-items-center mb-3">
+            <h1 class="h5 mb-0">My Grades</h1>
+            {% if percent is not none %}
+            <span class="badge badge-soft fs-6">Overall: {{ percent }}%</span>
+            {% endif %}
+        </div>
+
+        {% if items %}
+        <div class="app-card p-3 table-responsive">
+            <table class="table table-sm align-middle mb-0">
+                <thead><tr><th>Type</th><th>Title</th><th>Score</th><th>Feedback</th></tr></thead>
+                <tbody>
+                {% for i in items %}
+                <tr>
+                    <td><span class="badge {% if i.kind == 'Quiz' %}badge-exercise{% else %}badge-assignment{% endif %}">{{ i.kind }}</span></td>
+                    <td>{{ i.title }}</td>
+                    <td>
+                        {% if i.score is not none %}
+                        <strong>{{ '%g'|format(i.score) }}{% if i.max %} / {{ '%g'|format(i.max) }}{% endif %}</strong>
+                        {% elif i.submitted_at %}
+                        <span class="text-muted small">Submitted — awaiting grade</span>
+                        {% else %}
+                        <span class="text-muted small">—</span>
+                        {% endif %}
+                    </td>
+                    <td class="small text-muted">{{ i.feedback or '' }}</td>
+                </tr>
+                {% endfor %}
+                </tbody>
+            </table>
+        </div>
+        {% else %}
+        <div class="app-card p-4"><p class="text-muted mb-0">Nothing graded yet.</p></div>
+        {% endif %}
+    </div>
+</div>
+{% endblock %}

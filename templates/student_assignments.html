@@ -4,24 +4,75 @@
 <div class="row justify-content-center py-2">
     <div class="col-xl-8">
         <div class="d-flex justify-content-between align-items-center mb-3">
-            <h1 class="h5 mb-0">Assignments &amp; Exercises</h1>
-            <a href="/student/dashboard" class="small">Back to Dashboard</a>
+            <h1 class="h5 mb-0">Assignments</h1>
+            <a href="/student/grades" class="small">My Grades</a>
         </div>
         {% if assignments %}
         {% for a in assignments %}
-        <div class="app-card p-4 mb-3 {% if a.announcement_type == 'assignment' %}assignment-card{% elif a.announcement_type == 'exercise' %}exercise-card{% else %}announcement-card{% endif %}">
+        <div class="app-card p-4 mb-3 assignment-card">
             <div class="d-flex align-items-start justify-content-between mb-2">
-                <h2 class="h6 mb-1">[{{ a.announcement_type|capitalize }}] {{ a.title }}</h2>
-                <span class="badge {% if a.announcement_type == 'assignment' %}badge-assignment{% elif a.announcement_type == 'exercise' %}badge-exercise{% else %}badge-announcement{% endif %}">{{ a.announcement_type|capitalize }}</span>
+                <h2 class="h6 mb-1">{{ a.title }}</h2>
+                {% if a.my_submission and a.my_submission.score is not none %}
+                <span class="badge badge-soft">Graded: {{ '%g'|format(a.my_submission.score) }}/{{ '%g'|format(a.max_score) }}</span>
+                {% elif a.my_submission %}
+                <span class="badge badge-soft">Submitted</span>
+                {% elif a.overdue %}
+                <span class="badge bg-danger">Closed</span>
+                {% elif not a.active %}
+                <span class="badge bg-secondary">Closed</span>
+                {% else %}
+                <span class="badge badge-assignment">Open</span>
+                {% endif %}
             </div>
-            <p class="small text-muted mb-2">{{ a.created_at[:10] }} • {{ a.author }}{% if a.course_code %} • {{ a.course_code }}{% else %} • All Courses{% endif %}</p>
-            <p class="mb-0">{{ a.content }}</p>
+            <p class="small text-muted mb-2">
+                {{ a.course_code }} • Max {{ '%g'|format(a.max_score) }} pts
+                {% if a.due_at %} • Due {{ a.due_at[:16]|replace('T', ' ') }}{% endif %}
+            </p>
+            {% if a.description %}<p class="small mb-3">{{ a.description }}</p>{% endif %}
+
+            {% if a.my_submission %}
+            <div class="alert alert-success small py-2 mb-0">
+                Submitted {{ a.my_submission.submitted_at[:16]|replace('T', ' ') }} — {{ a.my_submission.original_filename }}
+                {% if a.my_submission.feedback %}<br><strong>Feedback:</strong> {{ a.my_submission.feedback }}{% endif %}
+            </div>
+            {% elif a.active and not a.overdue %}
+            <form method="POST" action="{{ url_for('student_submit_assignment', assignment_id=a.id) }}" enctype="multipart/form-data" class="row g-2 align-items-end">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>
+                <div class="col-sm-5">
+                    <label class="form-label small mb-1">Your work (file)</label>
+                    <input type="file" name="file" class="form-control form-control-sm" required>
+                </div>
+                <div class="col-sm-4">
+                    <label class="form-label small mb-1">Note (optional)</label>
+                    <input type="text" name="notes" class="form-control form-control-sm" maxlength="500" placeholder="Anything the instructor should know">
+                </div>
+                <div class="col-sm-3 d-grid">
+                    <button class="btn app-btn btn-sm">Submit</button>
+                </div>
+            </form>
+            {% elif a.overdue %}
+            <p class="small text-danger mb-0">The deadline has passed — submissions are closed.</p>
+            {% endif %}
         </div>
         {% endfor %}
         {% else %}
         <div class="app-card p-4">
-            <p class="text-muted mb-0">No assignments or exercises yet. Check back later.</p>
+            <p class="text-muted mb-0">No assignments yet. Check back later.</p>
         </div>
+        {% endif %}
+
+        {% if posts %}
+        <h2 class="h6 mt-4 mb-2">Assignment posts</h2>
+        {% for a in posts %}
+        <div class="app-card p-3 mb-2 {% if a.announcement_type == 'assignment' %}assignment-card{% else %}exercise-card{% endif %}">
+            <div class="d-flex align-items-start justify-content-between mb-1">
+                <h3 class="h6 mb-0 small">[{{ a.announcement_type|capitalize }}] {{ a.title }}</h3>
+                <span class="badge {% if a.announcement_type == 'assignment' %}badge-assignment{% else %}badge-exercise{% endif %}">{{ a.announcement_type|capitalize }}</span>
+            </div>
+            <p class="small text-muted mb-1">{{ a.created_at[:10] }} • {{ a.author }}{% if a.course_code %} • {{ a.course_code }}{% else %} • All Courses{% endif %}</p>
+            <p class="small mb-0">{{ a.content }}</p>
+        </div>
+        {% endfor %}
         {% endif %}
     </div>
 </div>

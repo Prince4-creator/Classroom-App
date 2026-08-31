@@ -1,0 +1,52 @@
+{% extends 'base.html' %}
+{% block title %}{{ quiz.title }} - OneMillionCoders{% endblock %}
+{% block content %}
+<div class="row justify-content-center py-2">
+    <div class="col-xl-8">
+        <div class="d-flex justify-content-between align-items-center mb-3">
+            <div>
+                <h1 class="h5 mb-1">{{ quiz.title }}</h1>
+                <p class="small text-muted mb-0">{{ quiz.course_code }} • {{ quiz.questions|length }} question(s)</p>
+            </div>
+            <span class="badge badge-soft fs-6" id="timer">{{ quiz.duration_minutes }}:00</span>
+        </div>
+
+        <form method="POST" id="quizTakeForm">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>
+            {% for q in quiz.questions %}
+            <div class="app-card p-4 mb-3">
+                <p class="fw-semibold mb-2">{{ loop.index }}. {{ q.question }} <span class="small text-muted">({{ '%g'|format(q.points) }} pt(s))</span></p>
+                {% for o in q.options %}
+                <div class="form-check">
+                    <input class="form-check-input" type="radio" name="q_{{ q.id }}" id="q{{ q.id }}_{{ loop.index }}" value="{{ o }}">
+                    <label class="form-check-label" for="q{{ q.id }}_{{ loop.index }}">{{ o }}</label>
+                </div>
+                {% endfor %}
+            </div>
+            {% endfor %}
+            <div class="d-grid">
+                <button class="btn app-btn" onclick="return confirm('Submit your answers? You cannot change them afterward.')">Submit Quiz</button>
+            </div>
+        </form>
+    </div>
+</div>
+{% endblock %}
+{% block scripts %}
+<script>
+let secondsLeft = {{ quiz.duration_minutes }} * 60;
+const timerEl = document.getElementById('timer');
+const form = document.getElementById('quizTakeForm');
+const interval = setInterval(function() {
+    secondsLeft--;
+    const m = Math.floor(secondsLeft / 60);
+    const s = String(secondsLeft % 60).padStart(2, '0');
+    timerEl.textContent = m + ':' + s;
+    if (secondsLeft <= 60) timerEl.classList.add('bg-danger');
+    if (secondsLeft <= 0) {
+        clearInterval(interval);
+        timerEl.textContent = 'Time up — submitting';
+        form.submit();
+    }
+}, 1000);
+</script>
+{% endblock %}

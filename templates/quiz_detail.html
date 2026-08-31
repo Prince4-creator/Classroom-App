@@ -1,0 +1,58 @@
+{% extends 'base.html' %}
+{% block title %}{{ quiz.title }} - Results{% endblock %}
+{% block content %}
+<div class="row justify-content-center py-2">
+    <div class="col-xl-9">
+        <div class="d-flex justify-content-between align-items-center mb-3 flex-wrap gap-2">
+            <div>
+                <h1 class="h5 mb-1">{{ quiz.title }}</h1>
+                <p class="small text-muted mb-0">{{ quiz.course_code }} • {{ quiz.duration_minutes }} min • {{ quiz.max_attempts }} attempt(s){% if not quiz.active %} • <span class="text-danger">Closed</span>{% endif %}</p>
+            </div>
+            <div class="d-flex gap-2">
+                <a href="/quizzes" class="btn btn-outline-light btn-sm">Back</a>
+                {% if quiz.active %}
+                <form method="POST">
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>
+                    <input type="hidden" name="action" value="close">
+                    <button class="btn btn-outline-light btn-sm" onclick="return confirm('Close this quiz?')">Close</button>
+                </form>
+                {% endif %}
+            </div>
+        </div>
+
+        <div class="app-card p-3 mb-3">
+            <h2 class="h6 mb-2">Questions</h2>
+            <ol class="small mb-0">
+            {% for q in quiz.questions %}
+                <li class="mb-2">
+                    {{ q.question }} <span class="badge badge-soft">{{ '%g'|format(q.points) }} pt(s)</span><br>
+                    {% for o in q.options %}
+                    <span class="me-2 {% if o == q.correct_option %}fw-bold text-success{% else %}text-muted{% endif %}">{{ o }}{% if o == q.correct_option %} ✓{% endif %}</span>
+                    {% endfor %}
+                </li>
+            {% endfor %}
+            </ol>
+        </div>
+
+        <div class="app-card p-3 table-responsive">
+            <h2 class="h6 mb-2">Attempts ({{ attempts|length }})</h2>
+            {% if attempts %}
+            <table class="table table-sm align-middle mb-0">
+                <thead><tr><th>Student</th><th>Score</th><th>Submitted</th></tr></thead>
+                <tbody>
+                {% for a in attempts %}
+                    <tr>
+                        <td><strong>{{ a.student_id }}</strong> — {{ a.name }}</td>
+                        <td>{{ '%g'|format(a.score) }} / {{ '%g'|format(a.max_score) }} ({{ '%.0f'|format(a.score / a.max_score * 100) }}%)</td>
+                        <td class="small">{{ a.submitted_at[:16]|replace('T', ' ') }}</td>
+                    </tr>
+                {% endfor %}
+                </tbody>
+            </table>
+            {% else %}
+            <p class="text-muted small mb-0">No attempts yet.</p>
+            {% endif %}
+        </div>
+    </div>
+</div>
+{% endblock %}

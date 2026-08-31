@@ -1,0 +1,148 @@
+{% extends 'base.html' %}
+{% block title %}Quizzes - OneMillionCoders{% endblock %}
+{% block content %}
+<div class="row justify-content-center py-2">
+    <div class="col-xl-9">
+        <div class="d-flex justify-content-between align-items-center mb-3 flex-wrap gap-2">
+            <h1 class="h5 mb-0">Quizzes</h1>
+            <button class="btn app-btn btn-sm" data-bs-toggle="collapse" data-bs-target="#createPanel">+ New Quiz</button>
+        </div>
+
+        <div class="collapse mb-3" id="createPanel">
+            <div class="app-card p-4">
+                <h2 class="h6 mb-3">Create Quiz</h2>
+                <form method="POST" id="quizForm">
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>
+                    <input type="hidden" name="questions_json" id="questionsJson" value="[]">
+                    <div class="row g-3 mb-3">
+                        <div class="col-md-5">
+                            <label class="form-label small">Course</label>
+                            <select name="course_code" class="form-select form-select-sm" required>
+                                <option value="">Select course</option>
+                                {% for c in courses %}<option value="{{ c.code }}">{{ c.code }} - {{ c.name }}</option>{% endfor %}
+                            </select>
+                        </div>
+                        <div class="col-md-3">
+                            <label class="form-label small">Title</label>
+                            <input type="text" name="title" class="form-control form-control-sm" required minlength="3" placeholder="e.g. Week 3 Quiz">
+                        </div>
+                        <div class="col-md-2">
+                            <label class="form-label small">Minutes</label>
+                            <input type="number" name="duration_minutes" class="form-control form-control-sm" value="10" min="1" max="180" required>
+                        </div>
+                        <div class="col-md-2">
+                            <label class="form-label small">Attempts</label>
+                            <input type="number" name="max_attempts" class="form-control form-control-sm" value="1" min="1" max="5" required>
+                        </div>
+                    </div>
+
+                    <div id="questionsList"></div>
+                    <div class="d-flex gap-2 mt-2">
+                        <button type="button" class="btn btn-outline-light btn-sm" id="addQuestion">+ Add question</button>
+                        <button class="btn app-btn btn-sm ms-auto">Create Quiz</button>
+                    </div>
+                </form>
+            </div>
+        </div>
+
+        <form method="GET" class="row g-2 mb-3">
+            <div class="col-auto">
+                <select name="course" class="form-select form-select-sm" onchange="this.form.submit()">
+                    <option value="">All courses</option>
+                    {% for c in courses %}<option value="{{ c.code }}" {% if selected_course == c.code %}selected{% endif %}>{{ c.code }}</option>{% endfor %}
+                </select>
+            </div>
+        </form>
+
+        {% if quizzes %}
+        {% for q in quizzes %}
+        <div class="app-card p-3 mb-2">
+            <div class="d-flex justify-content-between align-items-start flex-wrap gap-2">
+                <div>
+                    <h2 class="h6 mb-1">
+                        <a href="{{ url_for('quiz_detail', quiz_id=q.id) }}" class="text-decoration-none">{{ q.title }}</a>
+                        {% if not q.active %}<span class="badge bg-secondary ms-1">Closed</span>{% endif %}
+                    </h2>
+                    <p class="small text-muted mb-0">{{ q.course_code }} • {{ q.question_count }} question(s) • {{ q.duration_minutes }} min • {{ q.max_attempts }} attempt(s)</p>
+                </div>
+                <a href="{{ url_for('quiz_detail', quiz_id=q.id) }}" class="btn btn-outline-light btn-sm">Results</a>
+            </div>
+        </div>
+        {% endfor %}
+        {% else %}
+        <div class="app-card p-4"><p class="text-muted mb-0">No quizzes yet. Create one above.</p></div>
+        {% endif %}
+    </div>
+</div>
+{% endblock %}
+{% block scripts %}
+<script>
+let qIndex = 0;
+const list = document.getElementById('questionsList');
+
+function addQuestion() {
+    qIndex++;
+    const div = document.createElement('div');
+    div.className = 'border rounded-3 p-3 mb-2 question-block';
+    div.innerHTML = `
+        <div class="d-flex justify-content-between align-items-center mb-2">
+            <strong class="small">Question</strong>
+            <button type="button" class="btn btn-sm btn-outline-light remove-q">Remove</button>
+        </div>
+        <input type="text" class="form-control form-control-sm mb-2 q-text" placeholder="Question text" required>
+        <div class="row g-2 mb-2">
+            <div class="col"><input type="text" class="form-control form-control-sm q-opt" placeholder="Option A" required></div>
+            <div class="col"><input type="text" class="form-control form-control-sm q-opt" placeholder="Option B" required></div>
+            <div class="col"><input type="text" class="form-control form-control-sm q-opt" placeholder="Option C (optional)"></div>
+            <div class="col"><input type="text" class="form-control form-control-sm q-opt" placeholder="Option D (optional)"></div>
+        </div>
+        <div class="row g-2">
+            <div class="col-sm-6">
+                <select class="form-select form-select-sm q-correct" required>
+                    <option value="">Correct answer…</option>
+                </select>
+            </div>
+            <div class="col-sm-3">
+                <input type="number" class="form-control form-control-sm q-points" value="1" min="0.5" step="0.5" placeholder="Points">
+            </div>
+        </div>`;
+    list.appendChild(div);
+
+    const opts = div.querySelectorAll('.q-opt');
+    const correct = div.querySelector('.q-correct');
+    function syncCorrect() {
+        const current = correct.value;
+        correct.innerHTML = '<option value="">Correct answer…</option>';
+        opts.forEach(o => {
+            if (o.value.trim()) {
+                const opt = document.createElement('option');
+                opt.value = o.value.trim();
+                opt.textContent = o.value.trim();
+                correct.appendChild(opt);
+            }
+        });
+        if ([...correct.options].some(o => o.value === current)) correct.value = current;
+    }
+    opts.forEach(o => o.addEventListener('input', syncCorrect));
+    div.querySelector('.remove-q').addEventListener('click', () => div.remove());
+    syncCorrect();
+}
+
+document.getElementById('addQuestion').addEventListener('click', addQuestion);
+addQuestion();
+
+document.getElementById('quizForm').addEventListener('submit', function(e) {
+    const questions = [];
+    document.querySelectorAll('.question-block').forEach(div => {
+        const options = [...div.querySelectorAll('.q-opt')].map(o => o.value.trim()).filter(Boolean);
+        questions.push({
+            question: div.querySelector('.q-text').value.trim(),
+            options: options,
+            correct_option: div.querySelector('.q-correct').value,
+            points: parseFloat(div.querySelector('.q-points').value) || 1
+        });
+    });
+    document.getElementById('questionsJson').value = JSON.stringify(questions);
+});
+</script>
+{% endblock %}

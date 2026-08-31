@@ -232,6 +232,9 @@
     {{ side_link('/manage_attendance', 'bi-calendar-check', 'Attendance') }}
     {{ side_link('/attendance/session', 'bi-qr-code-scan', 'QR Session') }}
     {{ side_link('/poll', 'bi-bar-chart', 'Polls') }}
+    {{ side_link('/assignments', 'bi-journal-text', 'Assignments') }}
+    {{ side_link('/quizzes', 'bi-question-circle', 'Quizzes') }}
+    {{ side_link('/gradebook', 'bi-clipboard-data', 'Gradebook') }}
     {% if session.role == 'admin' %}
     <div class="side-section">Admin</div>
     {{ side_link('/admin', 'bi-speedometer2', 'Admin Panel') }}
@@ -247,6 +250,8 @@
     {{ side_link('/student/mark_attendance', 'bi-qr-code-scan', 'Mark Attendance') }}
     {{ side_link('/student/view_attendance', 'bi-calendar-check', 'My Attendance') }}
     {{ side_link('/student/assignments', 'bi-journal-text', 'Assignments') }}
+    {{ side_link('/student/quizzes', 'bi-question-circle', 'Quizzes') }}
+    {{ side_link('/student/grades', 'bi-clipboard-data', 'My Grades') }}
     {% endif %}
     <div class="sidebar-footer">
         <div class="user-chip">

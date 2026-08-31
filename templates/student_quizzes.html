@@ -1,0 +1,44 @@
+{% extends 'base.html' %}
+{% block title %}Quizzes - OneMillionCoders{% endblock %}
+{% block content %}
+<div class="row justify-content-center py-2">
+    <div class="col-xl-8">
+        <div class="d-flex justify-content-between align-items-center mb-3">
+            <h1 class="h5 mb-0">Quizzes</h1>
+            <a href="/student/grades" class="small">My Grades</a>
+        </div>
+        {% if quizzes %}
+        {% for q in quizzes %}
+        <div class="app-card p-4 mb-3">
+            <div class="d-flex justify-content-between align-items-start flex-wrap gap-2">
+                <div>
+                    <h2 class="h6 mb-1">
+                        {{ q.title }}
+                        {% if not q.active %}<span class="badge bg-secondary">Closed</span>{% endif %}
+                    </h2>
+                    <p class="small text-muted mb-1">{{ q.course_code }} • {{ q.question_count }} question(s) • {{ q.duration_minutes }} min</p>
+                    {% if q.my_attempts %}
+                    <p class="small mb-0">
+                        Best score:
+                        {% set best = q.my_attempts|sort(attribute='score', reverse=true)|first %}
+                        <strong>{{ '%g'|format(best.score) }}/{{ '%g'|format(best.max_score) }}</strong>
+                        • {{ q.my_attempts|length }}/{{ q.max_attempts }} attempt(s) used
+                    </p>
+                    {% else %}
+                    <p class="small text-muted mb-0">Not attempted yet • {{ q.attempts_left }} attempt(s) left</p>
+                    {% endif %}
+                </div>
+                {% if q.active and q.attempts_left > 0 %}
+                <a href="{{ url_for('student_take_quiz', quiz_id=q.id) }}" class="btn app-btn btn-sm">Take Quiz</a>
+                {% elif q.attempts_left <= 0 %}
+                <span class="badge bg-secondary">No attempts left</span>
+                {% endif %}
+            </div>
+        </div>
+        {% endfor %}
+        {% else %}
+        <div class="app-card p-4"><p class="text-muted mb-0">No quizzes for your class yet.</p></div>
+        {% endif %}
+    </div>
+</div>
+{% endblock %}
