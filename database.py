@@ -249,6 +249,10 @@ def init_db():
         # Add missing columns safely (Postgres supports ADD COLUMN IF NOT EXISTS)
         c.execute("ALTER TABLE students ADD COLUMN IF NOT EXISTS email TEXT")
         c.execute("ALTER TABLE students ADD COLUMN IF NOT EXISTS status TEXT DEFAULT 'active'")
+        c.execute("ALTER TABLE students ADD COLUMN IF NOT EXISTS email_verified INTEGER DEFAULT 0")
+        c.execute("ALTER TABLE students ADD COLUMN IF NOT EXISTS verify_code_hash TEXT")
+        c.execute("ALTER TABLE students ADD COLUMN IF NOT EXISTS verify_code_expiry TEXT")
+        c.execute("ALTER TABLE students ADD COLUMN IF NOT EXISTS verify_attempts INTEGER DEFAULT 0")
         c.execute("ALTER TABLE attendance ADD COLUMN IF NOT EXISTS latitude DOUBLE PRECISION")
         c.execute("ALTER TABLE attendance ADD COLUMN IF NOT EXISTS longitude DOUBLE PRECISION")
         c.execute("ALTER TABLE attendance ADD COLUMN IF NOT EXISTS device_fingerprint TEXT")
@@ -378,6 +382,14 @@ def init_db():
             c_sql.execute("ALTER TABLE students ADD COLUMN email TEXT")
         if 'status' not in student_columns:
             c_sql.execute("ALTER TABLE students ADD COLUMN status TEXT DEFAULT 'active'")
+        for column, ddl in (
+            ('email_verified', "ALTER TABLE students ADD COLUMN email_verified INTEGER DEFAULT 0"),
+            ('verify_code_hash', "ALTER TABLE students ADD COLUMN verify_code_hash TEXT"),
+            ('verify_code_expiry', "ALTER TABLE students ADD COLUMN verify_code_expiry TEXT"),
+            ('verify_attempts', "ALTER TABLE students ADD COLUMN verify_attempts INTEGER DEFAULT 0"),
+        ):
+            if column not in student_columns:
+                c_sql.execute(ddl)
         c_sql.execute("PRAGMA table_info(attendance)")
         attendance_columns = [row[1] for row in c_sql.fetchall()]
         if 'latitude' not in attendance_columns:
@@ -659,10 +671,10 @@ def verify_student(student_id, password):
 def get_all_students():
     conn = get_conn()
     c = conn.cursor()
-    c.execute("SELECT student_id, name, class_code, email, status FROM students ORDER BY name")
+    c.execute("SELECT student_id, name, class_code, email, status, COALESCE(email_verified, 0) FROM students ORDER BY name")
     rows = c.fetchall()
     conn.close()
-    return [{'student_id': r[0], 'name': r[1], 'class_code': r[2], 'email': r[3], 'status': r[4]} for r in rows]
+    return [{'student_id': r[0], 'name': r[1], 'class_code': r[2], 'email': r[3], 'status': r[4], 'email_verified': bool(r[5])} for r in rows]
 
 def approve_student(student_id):
     conn = get_conn()
@@ -767,10 +779,57 @@ def get_student_emails(course_code=None):
 def get_student_info(student_id):
     conn = get_conn()
     c = conn.cursor()
-    c.execute("SELECT student_id, name, class_code, email FROM students WHERE student_id=?", (student_id,))
+    c.execute("SELECT student_id, name, class_code, email, COALESCE(email_verified, 0) FROM students WHERE student_id=?", (student_id,))
     row = c.fetchone()
     conn.close()
-    return {'student_id': row[0], 'name': row[1], 'class_code': row[2], 'email': row[3]} if row else None
+    return {'student_id': row[0], 'name': row[1], 'class_code': row[2], 'email': row[3], 'email_verified': bool(row[4])} if row else None
+
+def get_student_verification(student_id):
+    conn = get_conn()
+    c = conn.cursor()
+    c.execute("SELECT email, COALESCE(email_verified, 0), verify_code_hash, verify_code_expiry, COALESCE(verify_attempts, 0) FROM students WHERE student_id=?", (student_id,))
+    row = c.fetchone()
+    conn.close()
+    if not row:
+        return None
+    return {'email': row[0], 'email_verified': bool(row[1]), 'code_hash': row[2], 'code_expiry': row[3], 'attempts': row[4]}
+
+def store_verification_code(student_id, code_hash, expiry):
+    conn = get_conn()
+    c = conn.cursor()
+    c.execute("UPDATE students SET verify_code_hash=?, verify_code_expiry=?, verify_attempts=0 WHERE student_id=?",
+              (code_hash, expiry, student_id))
+    conn.commit()
+    conn.close()
+
+def record_verify_attempt(student_id):
+    conn = get_conn()
+    c = conn.cursor()
+    c.execute("UPDATE students SET verify_attempts=COALESCE(verify_attempts,0)+1 WHERE student_id=?", (student_id,))
+    conn.commit()
+    c.execute("SELECT COALESCE(verify_attempts,0) FROM students WHERE student_id=?", (student_id,))
+    row = c.fetchone()
+    conn.close()
+    return row[0] if row else 0
+
+def set_email_verified(student_id, verified):
+    conn = get_conn()
+    c = conn.cursor()
+    if verified:
+        c.execute("UPDATE students SET email_verified=1, verify_code_hash=NULL, verify_code_expiry=NULL, verify_attempts=0 WHERE student_id=?",
+                  (student_id,))
+    else:
+        c.execute("UPDATE students SET email_verified=0 WHERE student_id=?", (student_id,))
+    conn.commit()
+    conn.close()
+
+def update_student_email(student_id, email):
+    conn = get_conn()
+    c = conn.cursor()
+    c.execute("UPDATE students SET email=?, email_verified=0, verify_code_hash=NULL, verify_code_expiry=NULL, verify_attempts=0 WHERE student_id=?",
+              (email, student_id))
+    conn.commit()
+    conn.close()
 
 def get_student_name(student_id):
     conn = get_conn()

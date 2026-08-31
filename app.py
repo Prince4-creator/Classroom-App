@@ -25,6 +25,8 @@ try:
 except Exception:
     qrcode = None
 import secrets
+import hashlib
+import hmac
 import socket
 import smtplib
 from email.message import EmailMessage
@@ -313,6 +315,36 @@ def send_email(subject, body, recipients):
             print('SSL fallback failed:', e_ssl)
             print(tb)
             return False
+
+
+# ---------- Email verification ----------
+VERIFY_CODE_TTL_MINUTES = 30
+VERIFY_MAX_ATTEMPTS = 5
+
+
+def generate_verification_code():
+    return f"{secrets.randbelow(1000000):06d}"
+
+
+def hash_verification_code(code):
+    return hashlib.sha256(code.strip().encode('utf-8')).hexdigest()
+
+
+def issue_verification_code(student_id, email):
+    """Generate a fresh code, store only its hash, and email the code.
+    Returns (sent, error_message)."""
+    code = generate_verification_code()
+    expiry = (datetime.now() + timedelta(minutes=VERIFY_CODE_TTL_MINUTES)).strftime('%Y-%m-%d %H:%M:%S')
+    store_verification_code(student_id, hash_verification_code(code), expiry)
+    subject = 'Verify your OneMillionCoders Classroom email'
+    body = (
+        f"Hello,\n\nYour OneMillionCoders Classroom verification code is: {code}\n\n"
+        f"It expires in {VERIFY_CODE_TTL_MINUTES} minutes. "
+        "If you did not request this, you can safely ignore this email."
+    )
+    if send_email(subject, body, [email]):
+        return True, None
+    return False, EMAIL_SEND_ERROR or 'email delivery failed'
 
 
 # ---------- Authentication ----------
@@ -1456,6 +1488,78 @@ def student_grades():
     percent = round(earned / possible * 100, 1) if possible else None
     return render_template('student_grades.html', student=student, items=items, percent=percent)
 
+
+@app.route('/student/verify_email', methods=['GET', 'POST'])
+def student_verify_email():
+    if 'student_id' not in session:
+        return redirect(url_for('student_login'))
+    info = get_student_verification(session['student_id'])
+    if not info:
+        session.clear()
+        return redirect(url_for('student_login'))
+    if request.method == 'POST':
+        if info['email_verified']:
+            flash('Your email is already verified.', 'success')
+            return redirect(url_for('student_dashboard'))
+        if not info['email']:
+            flash('No email address on your account. Ask an admin to add one.', 'error')
+            return redirect(url_for('student_dashboard'))
+        code = request.form.get('code', '').strip()
+        if not code:
+            flash('Enter the 6-digit code from your email.', 'error')
+            return redirect(url_for('student_verify_email'))
+        if info['attempts'] >= VERIFY_MAX_ATTEMPTS:
+            flash('Too many incorrect attempts. Request a new code to try again.', 'error')
+            return redirect(url_for('student_verify_email'))
+        if not info['code_hash'] or not info['code_expiry']:
+            flash('No active code yet. Request one below.', 'error')
+            return redirect(url_for('student_verify_email'))
+        try:
+            expired = datetime.strptime(info['code_expiry'], '%Y-%m-%d %H:%M:%S') < datetime.now()
+        except ValueError:
+            expired = True
+        if expired:
+            flash('That code has expired. Request a new one below.', 'error')
+            return redirect(url_for('student_verify_email'))
+        if hmac.compare_digest(hash_verification_code(code), info['code_hash']):
+            set_email_verified(session['student_id'], True)
+            flash('Email verified — thank you!', 'success')
+            return redirect(url_for('student_dashboard'))
+        attempts = record_verify_attempt(session['student_id'])
+        remaining = VERIFY_MAX_ATTEMPTS - attempts
+        if remaining <= 0:
+            flash('Too many incorrect attempts. Request a new code to try again.', 'error')
+        else:
+            flash(f'Incorrect code. {remaining} attempt(s) remaining.', 'error')
+        return redirect(url_for('student_verify_email'))
+    return render_template('student_verify_email.html', info=info)
+
+
+@app.route('/student/send_verification_code', methods=['POST'])
+def student_send_verification_code():
+    if 'student_id' not in session:
+        return redirect(url_for('student_login'))
+    info = get_student_verification(session['student_id'])
+    if not info:
+        session.clear()
+        return redirect(url_for('student_login'))
+    if info['email_verified']:
+        flash('Your email is already verified.', 'success')
+        return redirect(url_for('student_dashboard'))
+    if not info['email']:
+        flash('No email address on your account. Ask an admin to add one.', 'error')
+        return redirect(url_for('student_dashboard'))
+    if not check_rate_limit(f"verify_code:{session['student_id']}", limit=3, window_seconds=900):
+        flash('Too many codes sent recently. Please try again in a few minutes.', 'error')
+        return redirect(url_for('student_verify_email'))
+    sent, error = issue_verification_code(session['student_id'], info['email'])
+    if sent:
+        flash(f'Verification code sent to {info["email"]}.', 'success')
+    else:
+        flash(f'Could not send the email ({error}). Ask an admin for help.', 'error')
+    return redirect(url_for('student_verify_email'))
+
+
 # ---------- Admin: Manage Students & Users & Courses ----------
 @app.route('/admin/students', methods=['GET', 'POST'])
 def admin_students():
@@ -1480,6 +1584,8 @@ def admin_students():
             elif email and not validate_email(email):
                 flash('Invalid email format', 'error')
             elif add_student(student_id, name, password, class_code, email):
+                if email:
+                    issue_verification_code(student_id, email)
                 flash('Student added', 'success')
             else:
                 flash('ID exists or email invalid', 'error')
@@ -1489,6 +1595,26 @@ def admin_students():
         elif action == 'delete':
             delete_student(request.form.get('student_id', ''))
             flash('Student deleted', 'success')
+        elif action == 'mark_verified':
+            sid = request.form.get('student_id', '').strip()
+            if sid and get_student_info(sid):
+                set_email_verified(sid, True)
+                flash(f'{sid} marked as verified.', 'success')
+            else:
+                flash('Student not found.', 'error')
+        elif action == 'send_code':
+            sid = request.form.get('student_id', '').strip()
+            info = get_student_verification(sid) if sid else None
+            if not info:
+                flash('Student not found.', 'error')
+            elif not info['email']:
+                flash('That student has no email address yet. Add one first.', 'error')
+            else:
+                sent, error = issue_verification_code(sid, info['email'])
+                if sent:
+                    flash(f'Verification code sent to {info["email"]}.', 'success')
+                else:
+                    flash(f'Could not send the code email ({error}).', 'warning')
         return redirect(url_for('admin_students'))
     students = get_all_students()
     pending_students = get_pending_students()
@@ -1504,6 +1630,7 @@ def admin_edit_student():
         name = request.form.get('name', '').strip()
         class_code = request.form.get('class_code', '').strip()
         email = request.form.get('email', '').strip()
+        previous = get_student_info(student_id)
         if not validate_name(name):
             flash('Invalid student name', 'error')
         elif class_code and not validate_course_code(class_code):
@@ -1511,6 +1638,8 @@ def admin_edit_student():
         elif email and not validate_email(email):
             flash('Invalid email format', 'error')
         elif update_student(student_id, name, class_code, email):
+            if previous and (previous.get('email') or '') != email:
+                update_student_email(student_id, email)
             flash('Student updated', 'success')
         else:
             flash('Unable to update student', 'error')
@@ -1721,6 +1850,11 @@ def student_register():
             flash('Password must be at least 8 characters', 'error')
             return redirect(url_for('student_register'))
         if add_student(student_id, name, password, class_code, email, status='pending'):
+            if email:
+                try:
+                    issue_verification_code(student_id, email)
+                except Exception:
+                    pass
             flash('Registration submitted. An admin must approve your account.', 'success')
             return redirect(url_for('student_login'))
         flash('Unable to register student. Student ID may already exist.', 'error')

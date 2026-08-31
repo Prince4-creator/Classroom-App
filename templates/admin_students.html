@@ -92,7 +92,7 @@
             <div class="table-responsive">
                 <table class="table table-borderless align-middle mb-0">
                     <thead>
-                        <tr class="text-muted small text-uppercase"><th>ID</th><th>Name</th><th>Course</th><th>Email</th><th>Status</th><th>Actions</th></tr>
+                        <tr class="text-muted small text-uppercase"><th>ID</th><th>Name</th><th>Course</th><th>Email</th><th>Email verification</th><th>Status</th><th>Actions</th></tr>
                     </thead>
                     <tbody>
                         {% for s in students %}
@@ -102,12 +102,37 @@
                             <td>{{ s.class_code }}</td>
                             <td>{{ s.email or '—' }}</td>
                             <td>
+                                {% if s.email_verified %}
+                                <span class="badge rounded-pill" style="background: rgba(22,163,74,.12); color:#15803d;"><i class="bi bi-patch-check-fill"></i> Verified</span>
+                                {% elif s.email %}
+                                <span class="badge rounded-pill" style="background: rgba(217,119,6,.12); color:#b45309;">Unverified</span>
+                                {% else %}
+                                <span class="badge rounded-pill bg-light text-muted border">No email</span>
+                                {% endif %}
+                            </td>
+                            <td>
                                 <span class="badge rounded-pill badge-soft">{{ s.status|capitalize }}</span>
                             </td>
                             <td>
-                                <a href="/admin/students/edit?student_id={{ s.student_id }}" class="btn btn-sm btn-outline-secondary me-2">Edit</a>
+                                <a href="/admin/students/edit?student_id={{ s.student_id }}" class="btn btn-sm btn-outline-secondary me-1">Edit</a>
+                                {% if s.email %}
+                                <form method="POST" class="d-inline me-1">
+                                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>
+                                    <input type="hidden" name="action" value="send_code">
+                                    <input type="hidden" name="student_id" value="{{ s.student_id }}">
+                                    <button class="btn btn-sm btn-outline-secondary" title="Email a fresh verification code"><i class="bi bi-envelope"></i> Send code</button>
+                                </form>
+                                {% endif %}
+                                {% if not s.email_verified %}
+                                <form method="POST" class="d-inline me-1">
+                                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>
+                                    <input type="hidden" name="action" value="mark_verified">
+                                    <input type="hidden" name="student_id" value="{{ s.student_id }}">
+                                    <button class="btn btn-sm btn-outline-success" title="Mark this email as verified without sending a code"><i class="bi bi-patch-check"></i> Mark verified</button>
+                                </form>
+                                {% endif %}
                                 <form method="POST" class="d-inline">
-                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>
+                                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>
                                     <input type="hidden" name="action" value="delete">
                                     <input type="hidden" name="student_id" value="{{ s.student_id }}">
                                     <button class="btn btn-sm btn-outline-danger">Delete</button>
