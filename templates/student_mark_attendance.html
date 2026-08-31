@@ -103,9 +103,8 @@ document.getElementById('markBtn').addEventListener('click', function(e) {
                 } else if (error.code === 3) {
                     errorMsg = 'Location request timed out';
                 }
-                statusText.innerHTML = errorMsg + ' — submitting anyway...';
-                statusDiv.className = 'alert alert-warning small mb-3';
-                setTimeout(() => { document.getElementById('attendanceForm').submit(); }, 1500);
+                statusText.textContent = errorMsg + ' — location is required to check in. Enable location permission and try again.';
+                statusDiv.className = 'alert alert-danger small mb-3';
             },
             {
                 timeout: 10000,
@@ -113,9 +112,8 @@ document.getElementById('markBtn').addEventListener('click', function(e) {
             }
         );
     } else {
-        statusText.textContent = 'Geolocation not available in your browser';
-        statusDiv.className = 'alert alert-warning small mb-3';
-        setTimeout(() => { document.getElementById('attendanceForm').submit(); }, 1500);
+        statusText.textContent = 'Geolocation is not available in this browser, and location is required to check in.';
+        statusDiv.className = 'alert alert-danger small mb-3';
     }
 });
 {% endif %}

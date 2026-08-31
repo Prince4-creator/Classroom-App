@@ -66,7 +66,8 @@ def test_poll_page_requires_login(client):
 def test_student_cannot_mark_attendance_for_someone_else(client):
     login_student(client)
     response = client.post('/attendance',
-                           data={'student_id': 'S999', 'course_code': 'CS101'},
+                           data={'student_id': 'S999', 'course_code': 'CS101',
+                                 'latitude': '6.6', 'longitude': '3.3'},
                            follow_redirects=True)
     assert response.status_code == 200
     # The record must be created for the logged-in student (S001 / Alice),
@@ -78,9 +79,20 @@ def test_student_cannot_mark_attendance_for_someone_else(client):
 def test_manual_attendance_rejects_unknown_course(client):
     login_student(client)
     response = client.post('/attendance',
-                           data={'student_id': 'S001', 'course_code': 'NOPE999'},
+                           data={'student_id': 'S001', 'course_code': 'NOPE999',
+                                 'latitude': '6.6', 'longitude': '3.3'},
                            follow_redirects=True)
     assert b'Invalid course selected.' in response.data
+
+
+def test_attendance_requires_location(client):
+    login_student(client)
+    response = client.post('/attendance',
+                           data={'student_id': 'S001', 'course_code': 'CS101'},
+                           follow_redirects=True)
+    assert b'Location access is required' in response.data
+    # No attendance record may have been created.
+    assert database.get_attendance_for_student('S001', 'CS101') == []
 
 
 # ---------- Polls use session identity ----------

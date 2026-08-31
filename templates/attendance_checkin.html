@@ -22,9 +22,11 @@
             {% elif token %}
                 <div class="alert alert-warning">Invalid or expired token. Please ask your instructor for a new link.</div>
             {% endif %}
-            <form method="POST">
+            <form method="POST" id="checkinForm">
                 <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>
                 <input type="hidden" name="token" value="{{ token }}">
+                <input type="hidden" name="latitude" id="latitude">
+                <input type="hidden" name="longitude" id="longitude">
                 <div class="mb-3">
                     <label class="form-label">Student ID</label>
                     <input type="text" name="student_id" class="form-control" placeholder="Enter your student ID" required>
@@ -33,9 +35,13 @@
                     <label class="form-label">Password</label>
                     <input type="password" name="password" class="form-control" placeholder="Enter your attendance password">
                 </div>
-                <div class="d-grid">
-                    <button class="btn app-btn w-100">Mark Attendance</button>
+                <div id="locationStatus" class="alert alert-info small mb-3" style="display:none;">
+                    <span id="statusText">Requesting location...</span>
                 </div>
+                <div class="d-grid">
+                    <button type="button" id="markBtn" class="btn app-btn w-100">Mark Attendance</button>
+                </div>
+                <p class="small text-muted mt-3 mb-0">Location access is required. Clicking "Mark Attendance" captures your location automatically.</p>
             </form>
             <div class="mt-3 text-center">
                 <a href="/attendance" class="small text-info">Use manual attendance page</a>
@@ -43,4 +49,39 @@
         </div>
     </div>
 </div>
+{% endblock %}
+{% block scripts %}
+<script>
+document.getElementById('markBtn').addEventListener('click', function(e) {
+    e.preventDefault();
+    const statusDiv = document.getElementById('locationStatus');
+    const statusText = document.getElementById('statusText');
+    statusDiv.style.display = 'block';
+    statusDiv.className = 'alert alert-info small mb-3';
+    statusText.textContent = 'Requesting location permission...';
+
+    if (navigator.geolocation) {
+        navigator.geolocation.getCurrentPosition(
+            function(position) {
+                document.getElementById('latitude').value = position.coords.latitude;
+                document.getElementById('longitude').value = position.coords.longitude;
+                statusText.textContent = 'Location captured: ' + position.coords.latitude.toFixed(4) + ', ' + position.coords.longitude.toFixed(4);
+                setTimeout(() => { document.getElementById('checkinForm').submit(); }, 600);
+            },
+            function(error) {
+                let errorMsg = 'Could not get location';
+                if (error.code === 1) errorMsg = 'You denied location access';
+                else if (error.code === 2) errorMsg = 'Location unavailable';
+                else if (error.code === 3) errorMsg = 'Location request timed out';
+                statusText.textContent = errorMsg + ' — location is required to check in. Enable location permission and try again.';
+                statusDiv.className = 'alert alert-danger small mb-3';
+            },
+            { timeout: 10000, enableHighAccuracy: true }
+        );
+    } else {
+        statusText.textContent = 'Geolocation is not available in this browser, and location is required to check in.';
+        statusDiv.className = 'alert alert-danger small mb-3';
+    }
+});
+</script>
 {% endblock %}

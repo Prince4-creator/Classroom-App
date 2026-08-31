@@ -505,6 +505,9 @@ def student_mark_attendance():
         except (ValueError, TypeError):
             lat = None
             lon = None
+        if lat is None or lon is None:
+            flash('Location access is required to check in. Enable location permission in your browser and try again.', 'error')
+            return redirect(url_for('student_mark_attendance', token=token) if token else url_for('student_mark_attendance'))
         
         # Collect fraud detection data
         from utils import generate_device_fingerprint, check_fraud_warnings
@@ -648,10 +651,21 @@ def attendance():
         if course_code not in {c['code'] for c in get_all_courses()}:
             flash('Invalid course selected.', 'error')
             return redirect(url_for('attendance'))
+        latitude = request.form.get('latitude', '').strip()
+        longitude = request.form.get('longitude', '').strip()
+        try:
+            lat = float(latitude) if latitude else None
+            lon = float(longitude) if longitude else None
+        except ValueError:
+            lat = None
+            lon = None
+        if lat is None or lon is None:
+            flash('Location access is required to check in. Enable location permission in your browser and try again.', 'error')
+            return redirect(url_for('attendance'))
         now = datetime.now()
         date_str = now.strftime('%Y-%m-%d')
         time_str = now.strftime('%H:%M:%S')
-        mark_attendance(student_id, course_code, date_str, time_str, student_ip=request.remote_addr)
+        mark_attendance(student_id, course_code, date_str, time_str, latitude=lat, longitude=lon, student_ip=request.remote_addr)
         flash(f"Attendance marked for {name} in {course_code}", 'success')
         return redirect(url_for('attendance'))
     courses = get_all_courses()
@@ -679,10 +693,21 @@ def attendance_checkin():
         if not student_name:
             flash('Invalid student ID or password.', 'error')
             return redirect(url_for('attendance_checkin', token=token))
+        latitude = request.form.get('latitude', '').strip()
+        longitude = request.form.get('longitude', '').strip()
+        try:
+            lat = float(latitude) if latitude else None
+            lon = float(longitude) if longitude else None
+        except ValueError:
+            lat = None
+            lon = None
+        if lat is None or lon is None:
+            flash('Location access is required to check in. Enable location permission in your browser and try again.', 'error')
+            return redirect(url_for('attendance_checkin', token=token))
         now = datetime.now()
         date_str = session_info['date']
         time_str = now.strftime('%H:%M:%S')
-        mark_attendance(student_id, session_info['course_code'], date_str, time_str)
+        mark_attendance(student_id, session_info['course_code'], date_str, time_str, latitude=lat, longitude=lon, student_ip=request.remote_addr)
         flash(f"Attendance marked for {student_name} in {session_info['course_code']}", 'success')
         return redirect(url_for('attendance_checkin', token=token))
 
