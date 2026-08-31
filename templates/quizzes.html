@@ -161,6 +161,22 @@ function addQuestion(data) {
 document.getElementById('addQuestion').addEventListener('click', () => addQuestion());
 addQuestion();
 
+(function loadAiDraft() {
+    let draft = null;
+    try { draft = JSON.parse(localStorage.getItem('omc_quiz_draft') || 'null'); } catch (err) { draft = null; }
+    if (!draft) return;
+    localStorage.removeItem('omc_quiz_draft');
+    const questions = Array.isArray(draft.questions)
+        ? draft.questions.filter(q => q && typeof q.question === 'string' && q.question.trim())
+        : [];
+    if (!questions.length || Date.now() - (draft.savedAt || 0) > 24 * 60 * 60 * 1000) return;
+    document.getElementById('createPanel').classList.add('show');
+    document.querySelectorAll('.question-block').forEach(b => b.remove());
+    questions.forEach(q => addQuestion(q));
+    document.getElementById('aiStatus').textContent =
+        'Loaded ' + questions.length + ' question(s) from the AI Assistant. Review them, pick a course and title, then create the quiz.';
+})();
+
 document.getElementById('aiToggle').addEventListener('click', () => {
     document.getElementById('aiPanel').classList.toggle('d-none');
 });

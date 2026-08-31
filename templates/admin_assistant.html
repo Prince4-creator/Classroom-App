@@ -150,6 +150,17 @@
 .ai-send:disabled { opacity: .45; box-shadow: none; }
 
 .ai-footnote { text-align: center; font-size: .72rem; color: var(--muted); margin: .7rem 0 0; }
+
+.msg-actions { display: flex; flex-wrap: wrap; gap: .4rem; margin: -.4rem 0 1rem 2.85rem; }
+.msg-action {
+    display: inline-flex; align-items: center; gap: .35rem;
+    font-size: .72rem; font-weight: 700;
+    padding: .3rem .7rem; border-radius: 999px;
+    border: 1px solid var(--border); background: var(--surface); color: var(--muted);
+    transition: all .15s ease;
+}
+.msg-action i { font-size: .8rem; color: var(--accent); }
+.msg-action:hover { border-color: var(--accent); color: var(--accent-dark); background: var(--accent-soft); transform: translateY(-1px); }
 </style>
 <script>
 const log = document.getElementById('chatLog');
@@ -178,7 +189,7 @@ function addBubble(role, text) {
     wrap.appendChild(bubble);
     log.appendChild(wrap);
     log.scrollTop = log.scrollHeight;
-    return bubble;
+    return wrap;
 }
 
 function addTyping() {
@@ -192,6 +203,47 @@ function addTyping() {
     log.appendChild(wrap);
     log.scrollTop = log.scrollHeight;
     return wrap;
+}
+
+const isAdmin = {{ 'true' if session.role == 'admin' else 'false' }};
+
+function makeAction(icon, label, onClick) {
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'msg-action';
+    const ic = document.createElement('i');
+    ic.className = 'bi ' + icon;
+    btn.appendChild(ic);
+    btn.appendChild(document.createTextNode(' ' + label));
+    btn.addEventListener('click', () => onClick(btn));
+    return btn;
+}
+
+function addActions(wrap, text, quiz) {
+    const bar = document.createElement('div');
+    bar.className = 'msg-actions';
+    if (quiz && quiz.length) {
+        bar.appendChild(makeAction('bi-list-check', 'Send to Quiz Builder', () => {
+            localStorage.setItem('omc_quiz_draft', JSON.stringify({ questions: quiz, savedAt: Date.now() }));
+            window.open('/quizzes', '_blank');
+        }));
+    }
+    if (isAdmin) {
+        bar.appendChild(makeAction('bi-megaphone', 'Use as Announcement', () => {
+            localStorage.setItem('omc_announcement_draft', JSON.stringify({ content: text, savedAt: Date.now() }));
+            window.open('/admin/announcements', '_blank');
+        }));
+    }
+    bar.appendChild(makeAction('bi-clipboard', 'Copy', async (btn) => {
+        try {
+            await navigator.clipboard.writeText(text);
+            const labelNode = btn.childNodes[btn.childNodes.length - 1];
+            const old = labelNode.textContent;
+            labelNode.textContent = ' Copied!';
+            setTimeout(() => { labelNode.textContent = old; }, 1500);
+        } catch (err) { /* clipboard unavailable */ }
+    }));
+    wrap.appendChild(bar);
 }
 
 document.querySelectorAll('.quick-prompt').forEach(btn => {
@@ -221,7 +273,8 @@ form.addEventListener('submit', async (e) => {
         const data = await resp.json();
         typing.remove();
         if (resp.ok && data.reply) {
-            addBubble('ai', data.reply);
+            const wrap = addBubble('ai', data.reply);
+            addActions(wrap, data.reply, data.quiz);
             history.push({ role: 'assistant', content: data.reply });
         } else {
             addBubble('error', data.error || 'Something went wrong. Please try again.');

@@ -1339,7 +1339,11 @@ def admin_assistant_chat():
     reply, error = mistral_chat([{'role': 'system', 'content': ASSISTANT_SYSTEM_PROMPT}] + sanitized)
     if error:
         return jsonify({'error': error}), 502
-    return jsonify({'reply': reply})
+    payload = {'reply': reply}
+    questions = extract_json_questions(reply)
+    if questions:
+        payload['quiz'] = questions
+    return jsonify(payload)
 
 
 @app.route('/admin/assistant/generate_quiz', methods=['POST'])

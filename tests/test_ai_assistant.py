@@ -123,6 +123,31 @@ def test_chat_surfaces_mistral_errors(client, monkeypatch):
     assert response.get_json()['error'] == 'API is down'
 
 
+def test_chat_includes_quiz_when_reply_has_questions(client, monkeypatch):
+    import app as app_module
+    monkeypatch.setattr(app_module, 'mistral_chat',
+                        lambda messages, temperature=0.7, max_tokens=1500: (GOOD_QUESTIONS, None))
+    login_admin(client)
+    response = client.post('/admin/assistant/chat',
+                           json={'messages': [{'role': 'user', 'content': 'make me a quiz'}]})
+    assert response.status_code == 200
+    data = response.get_json()
+    assert data['reply'] == GOOD_QUESTIONS
+    assert len(data['quiz']) == 2
+    assert data['quiz'][0]['correct_option'] in data['quiz'][0]['options']
+
+
+def test_chat_plain_reply_has_no_quiz(client, monkeypatch):
+    import app as app_module
+    monkeypatch.setattr(app_module, 'mistral_chat',
+                        lambda messages, temperature=0.7, max_tokens=1500: ('Just a normal answer.', None))
+    login_admin(client)
+    response = client.post('/admin/assistant/chat',
+                           json={'messages': [{'role': 'user', 'content': 'hi'}]})
+    assert response.status_code == 200
+    assert 'quiz' not in response.get_json()
+
+
 # ---------- Quiz generation ----------
 
 GOOD_QUESTIONS = json.dumps([
