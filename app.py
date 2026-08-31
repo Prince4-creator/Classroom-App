@@ -1569,7 +1569,8 @@ def admin_panel():
     recent_events = get_recent_auth_events(5)
     student_signup_url = f"{get_accessible_host_url()}{url_for('student_register')}"
     smtp_status = bool(SMTP_SERVER and SMTP_USERNAME and SMTP_PASSWORD)
-    return render_template('admin_dashboard.html', stats=stats, smtp_status=smtp_status, email_from=EMAIL_FROM, auth_events=recent_events, student_signup_url=student_signup_url)
+    default_password_warning = bool(verify_user('admin', 'admin123'))
+    return render_template('admin_dashboard.html', stats=stats, smtp_status=smtp_status, email_from=EMAIL_FROM, auth_events=recent_events, student_signup_url=student_signup_url, default_password_warning=default_password_warning)
 
 @app.route('/admin/courses/delete', methods=['POST'])
 def admin_delete_course():

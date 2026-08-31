@@ -204,3 +204,23 @@ def test_failed_admin_logins_still_lock_out(client):
     response = login_admin(client, password='wrong-password')
     assert response.status_code == 200
     assert b'Too many failed login attempts' in response.data
+
+
+# ---------- Admin login exposure ----------
+
+def test_login_choice_page_does_not_promote_admin_login(client):
+    response = client.get('/login_choice')
+    assert response.status_code == 200
+    # Prominent admin button replaced with a discreet staff link
+    assert b'Admin Login' not in response.data
+    assert b'Staff login' in response.data
+
+
+def test_admin_panel_warns_about_default_password(client):
+    # The lockout test above exhausts the in-memory rate-limit budget
+    clear_rate_limit('admin_login:127.0.0.1:admin')
+    login_admin(client)
+    response = client.get('/admin')
+    assert response.status_code == 200
+    assert b'Security risk' in response.data
+    assert b'admin123' in response.data

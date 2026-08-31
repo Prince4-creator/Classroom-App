@@ -1,6 +1,15 @@
 ﻿{% extends 'base.html' %}
 {% block title %}Admin Panel - OneMillionCoders Classroom Hub{% endblock %}
 {% block content %}
+{% if default_password_warning %}
+<div class="alert alert-danger d-flex flex-column flex-md-row align-items-md-center justify-content-between gap-2" role="alert">
+    <div>
+        <i class="bi bi-exclamation-triangle-fill me-2"></i>
+        <strong>Security risk:</strong> the default <code>admin</code> account still uses the well-known password <code>admin123</code>. Anyone who finds the staff login can sign in with it.
+    </div>
+    <a href="/change_password" class="btn btn-danger btn-sm text-nowrap align-self-md-center">Change password now</a>
+</div>
+{% endif %}
 <div class="row gy-4">
     <div class="col-12">
         <div class="app-card p-4">
