@@ -1,34 +1,32 @@
 {% extends 'base.html' %}
 {% block title %}Student Login - OneMillionCoders{% endblock %}
 {% block content %}
-<div class="d-flex justify-content-center align-items-center min-vh-75">
-    <div style="max-width: 420px; width: 100%;">
-        <div class="app-card p-4">
-            <div class="text-center mb-4">
-                <img src="https://onemillioncoders.gov.gh/_next/image?url=https%3A%2F%2Fcdn.onemillioncoders.gov.gh%2Fomcp-asset%2Fimages%2Fone-million-coders-logo.png&w=128&q=75" alt="OneMillionCoders logo" style="width:82px;height:82px;object-fit:cover;border-radius:16px;box-shadow:0 6px 16px rgba(15,23,42,.12);" class="mb-3">
-                <h2 class="h3 mb-2">Student Login</h2>
-                <p class="small text-muted">Sign in to access your dashboard</p>
+<div class="auth-wrap">
+    <div class="auth-card" style="max-width: 440px;">
+        <div class="text-center mb-4">
+            <img src="https://cdn.onemillioncoders.gov.gh/omcp-asset/images/one-million-coders-logo.png" alt="OneMillionCoders logo" class="auth-logo mb-3">
+            <h2 class="auth-title h3 mb-2">Student Login</h2>
+            <p class="small text-muted mb-0">Sign in to access your dashboard</p>
+        </div>
+        <form method="POST">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>
+            {% if next_url %}
+                <input type="hidden" name="next" value="{{ next_url }}">
+            {% endif %}
+            <div class="mb-3">
+                <label class="form-label">Student ID</label>
+                <input type="text" name="student_id" class="form-control" placeholder="S001" required autofocus>
             </div>
-            <form method="POST">
-                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>
-                {% if next_url %}
-                    <input type="hidden" name="next" value="{{ next_url }}">
-                {% endif %}
-                <div class="mb-3">
-                    <label class="form-label fw-bold">Student ID</label>
-                    <input type="text" name="student_id" class="form-control" placeholder="S001" required autofocus>
-                </div>
-                <div class="mb-3">
-                    <label class="form-label fw-bold">Password</label>
-                    <input type="password" name="password" class="form-control" placeholder="Password" required>
-                </div>
-                <div class="d-grid mb-3">
-                    <button class="btn app-btn">Sign In</button>
-                </div>
-            </form>
-            <div class="text-center">
-                <a href="/student/register" class="text-info fw-semibold">New student? Register</a>
+            <div class="mb-3">
+                <label class="form-label">Password</label>
+                <input type="password" name="password" class="form-control" placeholder="Password" required>
             </div>
+            <div class="d-grid mb-3">
+                <button class="btn app-btn btn-lg w-100">Sign In</button>
+            </div>
+        </form>
+        <div class="text-center">
+            <a href="/student/register" class="fw-semibold text-decoration-none" style="color: var(--accent);">New student? Register</a>
         </div>
     </div>
 </div>

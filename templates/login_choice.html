@@ -1,18 +1,16 @@
 {% extends 'base.html' %}
 {% block title %}OneMillionCoders Class{% endblock %}
 {% block content %}
-<div class="d-flex align-items-center justify-content-center min-vh-75 py-4">
-    <div class="app-card text-center p-4 p-md-5" style="max-width: 720px; width: 100%;">
-        <img src="https://cdn.onemillioncoders.gov.gh/omcp-asset/images/one-million-coders-logo.png" alt="OneMillionCoders logo" style="width:96px;height:96px;object-fit:cover;border-radius:18px;box-shadow:0 6px 16px rgba(15,23,42,.12);" class="mb-4">
-        <h1 class="h2 mb-2">OneMillionCoders Class</h1>
+<div class="auth-wrap">
+    <div class="auth-card text-center" style="max-width: 520px;">
+        <img src="https://cdn.onemillioncoders.gov.gh/omcp-asset/images/one-million-coders-logo.png" alt="OneMillionCoders logo" class="auth-logo mb-4">
+        <h1 class="auth-title h2 mb-2">OneMillionCoders Class</h1>
         <p class="text-muted mb-4">Manage attendance, polls and announcements.</p>
-        <div class="row g-3 justify-content-center">
-            <div class="col-12 col-md-8">
-                <a href="/student/login" class="btn app-btn btn-lg w-100">Student Login</a>
-            </div>
+        <div class="d-grid">
+            <a href="/student/login" class="btn app-btn btn-lg w-100">Student Login</a>
         </div>
         <div class="mt-4">
-            <a href="/student/register">New student? Register here</a>
+            <a href="/student/register" class="fw-semibold text-decoration-none" style="color: var(--accent);">New student? Register here</a>
         </div>
     </div>
 </div>
