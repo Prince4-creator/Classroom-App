@@ -1,4 +1,4 @@
-from flask import Flask, render_template, request, redirect, url_for, session, flash, Response, send_from_directory
+from flask import Flask, render_template, request, redirect, url_for, session, flash, Response, send_from_directory, jsonify
 from flask_wtf.csrf import CSRFProtect
 from database import *
 from utils import (
@@ -29,6 +29,8 @@ import socket
 import smtplib
 from email.message import EmailMessage
 from urllib.parse import urlparse, urljoin
+import urllib.request
+import urllib.error
 
 from werkzeug.utils import secure_filename
 import traceback
@@ -248,6 +250,11 @@ SMTP_USERNAME = os.environ.get('SMTP_USERNAME', '')
 SMTP_PASSWORD = os.environ.get('SMTP_PASSWORD', '')
 EMAIL_FROM = os.environ.get('EMAIL_FROM', SMTP_USERNAME)
 EMAIL_SEND_ERROR = None
+
+# -------- Mistral AI --------
+MISTRAL_API_KEY = os.environ.get('MISTRAL_API_KEY', '').strip()
+MISTRAL_MODEL = os.environ.get('MISTRAL_MODEL', '').strip() or 'mistral-large-latest'
+MISTRAL_API_URL = 'https://api.mistral.ai/v1/chat/completions'
 
 
 def send_email(subject, body, recipients):
@@ -1194,6 +1201,168 @@ def student_take_quiz(quiz_id):
         flash(f'Quiz submitted — you scored {score:g} / {max_score:g}.', 'success')
         return redirect(url_for('student_quizzes'))
     return render_template('quiz_take.html', student=student, quiz=quiz)
+
+# ---------- AI Assistant (Mistral) ----------
+
+ASSISTANT_SYSTEM_PROMPT = (
+    "You are OneMillionCoders Classroom Assistant, a brilliant, friendly AI aide for "
+    "teachers and classroom administrators. You answer any question thoroughly and "
+    "accurately — teaching, lesson planning, grading, announcements, coding, general "
+    "knowledge, anything. Be concise by default, detailed when asked. Use plain text "
+    "with simple line breaks and '-' bullets; no markdown headers or code fences unless "
+    "the user asks for code."
+)
+
+QUIZ_GEN_SYSTEM_PROMPT = (
+    "You are an expert exam writer. You always reply with ONLY a raw JSON array — no "
+    "explanations, no markdown, no code fences. Each element has exactly these keys: "
+    "\"question\" (string), \"options\" (array of 3-4 strings), \"correct_option\" "
+    "(one of the option strings, verbatim), \"points\" (number)."
+)
+
+
+def mistral_chat(messages, temperature=0.7, max_tokens=1500):
+    """Call the Mistral chat API. Returns (reply_text, error_message)."""
+    if not MISTRAL_API_KEY:
+        return None, 'MISTRAL_API_KEY is not configured. Add your Mistral API key to the .env file.'
+    payload = json.dumps({
+        'model': MISTRAL_MODEL,
+        'messages': messages,
+        'temperature': temperature,
+        'max_tokens': max_tokens,
+    }).encode('utf-8')
+    req = urllib.request.Request(
+        MISTRAL_API_URL,
+        data=payload,
+        headers={
+            'Authorization': f'Bearer {MISTRAL_API_KEY}',
+            'Content-Type': 'application/json',
+        },
+        method='POST',
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=90) as resp:
+            data = json.loads(resp.read().decode('utf-8'))
+        return data['choices'][0]['message']['content'].strip(), None
+    except urllib.error.HTTPError as e:
+        try:
+            detail = e.read().decode('utf-8', errors='replace')[:300]
+        except Exception:
+            detail = ''
+        print('Mistral API HTTP error:', e.code, detail)
+        if e.code in (401, 403):
+            return None, 'Mistral rejected the API key. Check MISTRAL_API_KEY in your .env file.'
+        if e.code == 404:
+            return None, f"Model '{MISTRAL_MODEL}' is not available for this API key. Set MISTRAL_MODEL in your .env file (e.g. mistral-small-latest)."
+        if e.code == 429:
+            return None, 'Mistral rate limit reached. Please wait a moment and try again.'
+        return None, f'Mistral API error (HTTP {e.code}). Please try again.'
+    except Exception as e:
+        print('Mistral API error:', e)
+        return None, 'Could not reach the Mistral API. Check your internet connection and try again.'
+
+
+def extract_json_questions(text):
+    """Parse and validate quiz questions from a model reply. Returns list or None."""
+    start, end = text.find('['), text.rfind(']')
+    if start == -1 or end <= start:
+        return None
+    try:
+        parsed = json.loads(text[start:end + 1])
+    except ValueError:
+        return None
+    if not isinstance(parsed, list):
+        return None
+    cleaned = []
+    for item in parsed:
+        if not isinstance(item, dict):
+            continue
+        question = str(item.get('question', '')).strip()
+        options = [str(o).strip() for o in item.get('options', []) if str(o).strip()]
+        correct = str(item.get('correct_option', '')).strip()
+        if not question or len(options) < 2 or correct not in options:
+            continue
+        try:
+            points = float(item.get('points', 1))
+        except (TypeError, ValueError):
+            points = 1.0
+        if points <= 0:
+            points = 1.0
+        cleaned.append({
+            'question': question[:500],
+            'options': [o[:200] for o in options[:4]],
+            'correct_option': correct[:200],
+            'points': points,
+        })
+    return cleaned or None
+
+
+@app.route('/admin/assistant')
+def admin_assistant():
+    if not staff_required():
+        return redirect(url_for('login_choice'))
+    return render_template('admin_assistant.html',
+                           mistral_configured=bool(MISTRAL_API_KEY),
+                           mistral_model=MISTRAL_MODEL)
+
+
+@app.route('/admin/assistant/chat', methods=['POST'])
+def admin_assistant_chat():
+    if not staff_required():
+        return jsonify({'error': 'Not authorized'}), 403
+    if not check_rate_limit(f"ai_chat:{request.remote_addr}", limit=60, window_seconds=900):
+        return jsonify({'error': 'Too many AI requests. Please try again in a few minutes.'}), 429
+    data = request.get_json(silent=True) or {}
+    incoming = data.get('messages')
+    if not isinstance(incoming, list):
+        return jsonify({'error': 'No messages provided.'}), 400
+    sanitized = []
+    for m in incoming[-20:]:
+        if not isinstance(m, dict):
+            continue
+        role = m.get('role')
+        content = str(m.get('content', '')).strip()[:8000]
+        if role in ('user', 'assistant') and content:
+            sanitized.append({'role': role, 'content': content})
+    if not sanitized or sanitized[-1]['role'] != 'user':
+        return jsonify({'error': 'Nothing to ask yet.'}), 400
+    reply, error = mistral_chat([{'role': 'system', 'content': ASSISTANT_SYSTEM_PROMPT}] + sanitized)
+    if error:
+        return jsonify({'error': error}), 502
+    return jsonify({'reply': reply})
+
+
+@app.route('/admin/assistant/generate_quiz', methods=['POST'])
+def admin_generate_quiz():
+    if not staff_required():
+        return jsonify({'error': 'Not authorized'}), 403
+    if not check_rate_limit(f"ai_quiz:{request.remote_addr}", limit=20, window_seconds=900):
+        return jsonify({'error': 'Too many AI requests. Please try again in a few minutes.'}), 429
+    data = request.get_json(silent=True) or {}
+    topic = str(data.get('topic', '')).strip()[:200]
+    course_code = str(data.get('course_code', '')).strip()[:20]
+    try:
+        count = min(max(int(data.get('count', 5)), 1), 10)
+    except (TypeError, ValueError):
+        count = 5
+    if not topic:
+        return jsonify({'error': 'Provide a topic first.'}), 400
+    prompt = (
+        f"Write {count} multiple-choice questions about: {topic}. "
+        + (f"Course context: {course_code}. " if course_code else "")
+        + "Vary the difficulty from easy to hard. Each question must have 4 options and exactly one correct answer."
+    )
+    reply, error = mistral_chat(
+        [{'role': 'system', 'content': QUIZ_GEN_SYSTEM_PROMPT}, {'role': 'user', 'content': prompt}],
+        temperature=0.4,
+        max_tokens=3000,
+    )
+    if error:
+        return jsonify({'error': error}), 502
+    questions = extract_json_questions(reply)
+    if questions is None:
+        return jsonify({'error': 'The AI returned an unexpected format. Please try again.'}), 502
+    return jsonify({'questions': questions[:count]})
 
 # ---------- Gradebook ----------
 

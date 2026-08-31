@@ -37,9 +37,31 @@
                     </div>
 
                     <div id="questionsList"></div>
-                    <div class="d-flex gap-2 mt-2">
+                    <div class="d-flex gap-2 mt-2 flex-wrap">
                         <button type="button" class="btn btn-outline-light btn-sm" id="addQuestion">+ Add question</button>
+                        <button type="button" class="btn btn-outline-light btn-sm" id="aiToggle"><i class="bi bi-stars"></i> Generate with AI</button>
                         <button class="btn app-btn btn-sm ms-auto">Create Quiz</button>
+                    </div>
+                    <div class="border rounded-3 p-3 mt-2 d-none" id="aiPanel">
+                        <div class="row g-2 align-items-end">
+                            <div class="col-md-7">
+                                <label class="form-label small">Topic</label>
+                                <input type="text" id="aiTopic" class="form-control form-control-sm" placeholder="e.g. Python loops and conditionals">
+                            </div>
+                            <div class="col-md-3">
+                                <label class="form-label small">Questions</label>
+                                <select id="aiCount" class="form-select form-select-sm">
+                                    <option>3</option>
+                                    <option selected>5</option>
+                                    <option>8</option>
+                                    <option>10</option>
+                                </select>
+                            </div>
+                            <div class="col-md-2 d-grid">
+                                <button type="button" class="btn app-btn btn-sm" id="aiGenerate">Generate</button>
+                            </div>
+                        </div>
+                        <div id="aiStatus" class="small text-muted mt-2">Powered by Mistral AI — review generated questions before publishing.</div>
                     </div>
                 </form>
             </div>
@@ -80,7 +102,7 @@
 let qIndex = 0;
 const list = document.getElementById('questionsList');
 
-function addQuestion() {
+function addQuestion(data) {
     qIndex++;
     const div = document.createElement('div');
     div.className = 'border rounded-3 p-3 mb-2 question-block';
@@ -125,11 +147,61 @@ function addQuestion() {
     }
     opts.forEach(o => o.addEventListener('input', syncCorrect));
     div.querySelector('.remove-q').addEventListener('click', () => div.remove());
-    syncCorrect();
+    if (data) {
+        div.querySelector('.q-text').value = data.question || '';
+        opts.forEach((o, i) => { o.value = (data.options && data.options[i]) || ''; });
+        div.querySelector('.q-points').value = data.points || 1;
+        syncCorrect();
+        div.querySelector('.q-correct').value = data.correct_option || '';
+    } else {
+        syncCorrect();
+    }
 }
 
-document.getElementById('addQuestion').addEventListener('click', addQuestion);
+document.getElementById('addQuestion').addEventListener('click', () => addQuestion());
 addQuestion();
+
+document.getElementById('aiToggle').addEventListener('click', () => {
+    document.getElementById('aiPanel').classList.toggle('d-none');
+});
+
+document.getElementById('aiGenerate').addEventListener('click', async () => {
+    const status = document.getElementById('aiStatus');
+    const topic = document.getElementById('aiTopic').value.trim();
+    if (!topic) { status.textContent = 'Enter a topic first.'; return; }
+    const btn = document.getElementById('aiGenerate');
+    btn.disabled = true;
+    status.textContent = 'Generating questions with AI…';
+    try {
+        const resp = await fetch('/admin/assistant/generate_quiz', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'X-CSRFToken': document.querySelector('#quizForm [name=csrf_token]').value,
+            },
+            body: JSON.stringify({
+                topic: topic,
+                count: parseInt(document.getElementById('aiCount').value, 10),
+                course_code: document.querySelector('#quizForm [name=course_code]').value,
+            }),
+        });
+        const data = await resp.json();
+        if (resp.ok && data.questions && data.questions.length) {
+            const blocks = [...document.querySelectorAll('.question-block')];
+            const allEmpty = blocks.every(b => !b.querySelector('.q-text').value.trim()
+                && ![...b.querySelectorAll('.q-opt')].some(o => o.value.trim()));
+            if (allEmpty) blocks.forEach(b => b.remove());
+            data.questions.forEach(q => addQuestion(q));
+            status.textContent = 'Added ' + data.questions.length + ' generated question(s). Review them before creating the quiz.';
+        } else {
+            status.textContent = data.error || 'AI generation failed. Please try again.';
+        }
+    } catch (err) {
+        status.textContent = 'Network error — could not reach the server.';
+    } finally {
+        btn.disabled = false;
+    }
+});
 
 document.getElementById('quizForm').addEventListener('submit', function(e) {
     const questions = [];

@@ -1,0 +1,123 @@
+{% extends 'base.html' %}
+{% block title %}AI Assistant - OneMillionCoders{% endblock %}
+{% block content %}
+<div class="row justify-content-center py-2">
+    <div class="col-xl-9">
+        <div class="d-flex justify-content-between align-items-center mb-3 flex-wrap gap-2">
+            <div>
+                <h1 class="h5 mb-0">AI Assistant</h1>
+                <p class="small text-muted mb-0">Ask anything — lesson plans, explanations, drafts, grading help.</p>
+            </div>
+            <span class="badge rounded-pill {{ 'text-bg-success' if mistral_configured else 'text-bg-danger' }}">
+                Mistral: {{ mistral_model if mistral_configured else 'not configured' }}
+            </span>
+        </div>
+
+        {% if not mistral_configured %}
+        <div class="alert alert-warning" role="alert">
+            <i class="bi bi-key me-2"></i>
+            The AI assistant needs an API key. Add <code>MISTRAL_API_KEY</code> to your <code>.env</code> file
+            (get a key at <strong>console.mistral.ai</strong>), then restart the app.
+        </div>
+        {% endif %}
+
+        <div class="app-card p-3 p-md-4">
+            <div id="chatLog" style="min-height: 320px; max-height: 60vh; overflow-y: auto;">
+                <div class="msg ai">
+                    <div class="msg-bubble">Hello! I'm your classroom AI assistant. Ask me anything — a topic to explain, an announcement to draft, quiz ideas, or any other question.</div>
+                </div>
+            </div>
+
+            <div class="d-flex flex-wrap gap-2 mt-3" id="quickPrompts">
+                <button type="button" class="btn btn-outline-light btn-sm quick-prompt">Draft an announcement about tomorrow's quiz</button>
+                <button type="button" class="btn btn-outline-light btn-sm quick-prompt">Explain Python loops simply for beginners</button>
+                <button type="button" class="btn btn-outline-light btn-sm quick-prompt">Give me 5 quiz topic ideas for CS101</button>
+            </div>
+
+            <form id="chatForm" class="mt-3">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>
+                <div class="input-group">
+                    <textarea id="chatInput" class="form-control" rows="2" placeholder="Ask anything…" {% if not mistral_configured %}disabled{% endif %} required></textarea>
+                    <button class="btn app-btn" type="submit" id="sendBtn" {% if not mistral_configured %}disabled{% endif %}>
+                        <i class="bi bi-send"></i> Send
+                    </button>
+                </div>
+                <div class="form-text">Answers are AI-generated. Review before sharing with students.</div>
+            </form>
+        </div>
+    </div>
+</div>
+{% endblock %}
+{% block scripts %}
+<style>
+.msg { display: flex; margin-bottom: .75rem; }
+.msg.user { justify-content: flex-end; }
+.msg-bubble { max-width: 85%; padding: .6rem .9rem; border-radius: 14px; white-space: pre-wrap; word-wrap: break-word; line-height: 1.45; font-size: .95rem; }
+.msg.ai .msg-bubble { background: rgba(148,163,184,.12); border: 1px solid rgba(148,163,184,.2); }
+.msg.user .msg-bubble { background: rgba(124,58,237,.25); border: 1px solid rgba(124,58,237,.35); }
+.msg.error .msg-bubble { background: rgba(220,53,69,.15); border: 1px solid rgba(220,53,69,.4); color: #f1aeb5; }
+.typing { opacity: .6; font-style: italic; }
+</style>
+<script>
+const log = document.getElementById('chatLog');
+const form = document.getElementById('chatForm');
+const input = document.getElementById('chatInput');
+const sendBtn = document.getElementById('sendBtn');
+const history = []; // [{role, content}]
+
+function addBubble(role, text) {
+    const div = document.createElement('div');
+    div.className = 'msg ' + role;
+    const bubble = document.createElement('div');
+    bubble.className = 'msg-bubble';
+    bubble.textContent = text; // textContent = safe against HTML injection
+    div.appendChild(bubble);
+    log.appendChild(div);
+    log.scrollTop = log.scrollHeight;
+    return bubble;
+}
+
+document.querySelectorAll('.quick-prompt').forEach(btn => {
+    btn.addEventListener('click', () => {
+        input.value = btn.textContent;
+        form.requestSubmit();
+    });
+});
+
+form.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const text = input.value.trim();
+    if (!text) return;
+    input.value = '';
+    addBubble('user', text);
+    history.push({ role: 'user', content: text });
+    sendBtn.disabled = true;
+    const typing = addBubble('ai', 'Thinking…');
+    typing.classList.add('typing');
+    try {
+        const csrf = form.querySelector('[name=csrf_token]').value;
+        const resp = await fetch('/admin/assistant/chat', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'X-CSRFToken': csrf },
+            body: JSON.stringify({ messages: history }),
+        });
+        const data = await resp.json();
+        typing.parentElement.remove();
+        if (resp.ok && data.reply) {
+            addBubble('ai', data.reply);
+            history.push({ role: 'assistant', content: data.reply });
+        } else {
+            addBubble('error', data.error || 'Something went wrong. Please try again.');
+            history.pop(); // drop the failed user message so it can be retried
+        }
+    } catch (err) {
+        typing.parentElement.remove();
+        addBubble('error', 'Network error — could not reach the server.');
+        history.pop();
+    } finally {
+        sendBtn.disabled = false;
+        input.focus();
+    }
+});
+</script>
+{% endblock %}
