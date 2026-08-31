@@ -239,3 +239,33 @@ def test_admin_panel_warns_about_default_password(client):
     assert response.status_code == 200
     assert b'Security risk' in response.data
     assert b'admin123' in response.data
+
+
+def test_https_form_post_with_same_origin_referrer_succeeds(tmp_path, monkeypatch):
+    # Regression: Referrer-Policy 'no-referrer' suppressed the Referer header,
+    # so on HTTPS deployments Flask-WTF's SSL-strict CSRF check returned
+    # 400 'The referrer header is missing' for every form POST.
+    import re
+    monkeypatch.setattr(database, 'DB_NAME', str(tmp_path / 'test_classroom.db'))
+    database.init_db()
+    from app import app
+    app.config.update(TESTING=True, WTF_CSRF_ENABLED=True)
+    try:
+        with app.test_client() as c:
+            clear_rate_limit('admin_login:127.0.0.1:admin')
+            page = c.get(STAFF_LOGIN_PATH)
+            assert page.headers['Referrer-Policy'] == 'same-origin'
+            token = re.search(rb'name="csrf_token" value="([^"]+)"', page.data).group(1).decode()
+            r = c.post(
+                STAFF_LOGIN_PATH,
+                data={'username': 'admin', 'password': 'admin123', 'csrf_token': token},
+                environ_overrides={
+                    'wsgi.url_scheme': 'https',
+                    'HTTP_HOST': 'localhost',
+                    'SERVER_NAME': 'localhost',
+                    'HTTP_REFERER': f'https://localhost{STAFF_LOGIN_PATH}',
+                },
+            )
+            assert r.status_code == 302  # login succeeds, not a 400 referrer error
+    finally:
+        app.config.update(WTF_CSRF_ENABLED=False)

@@ -159,7 +159,7 @@ def apply_security_headers(response):
     )
     response.headers['X-Frame-Options'] = 'DENY'
     response.headers['X-Content-Type-Options'] = 'nosniff'
-    response.headers['Referrer-Policy'] = 'no-referrer'
+    response.headers['Referrer-Policy'] = 'same-origin'
     response.headers['Permissions-Policy'] = 'geolocation=()'
     return response
 
