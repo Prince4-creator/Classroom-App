@@ -807,10 +807,13 @@ def record_verify_attempt(student_id):
     c = conn.cursor()
     c.execute("UPDATE students SET verify_attempts=COALESCE(verify_attempts,0)+1 WHERE student_id=?", (student_id,))
     conn.commit()
+    # Fetch the updated count before closing the connection
     c.execute("SELECT COALESCE(verify_attempts,0) FROM students WHERE student_id=?", (student_id,))
     row = c.fetchone()
+    attempts = row[0] if row else 0
+    c.close()
     conn.close()
-    return row[0] if row else 0
+    return attempts
 
 def set_email_verified(student_id, verified):
     conn = get_conn()
@@ -823,7 +826,17 @@ def set_email_verified(student_id, verified):
     conn.commit()
     conn.close()
 
+def reset_email_verification(student_id):
+    """Reset email verification status without changing the email address"""
+    conn = get_conn()
+    c = conn.cursor()
+    c.execute("UPDATE students SET email_verified=0, verify_code_hash=NULL, verify_code_expiry=NULL, verify_attempts=0 WHERE student_id=?",
+              (student_id,))
+    conn.commit()
+    conn.close()
+
 def update_student_email(student_id, email):
+    """Update student email and reset verification (used when admin changes email)"""
     conn = get_conn()
     c = conn.cursor()
     c.execute("UPDATE students SET email=?, email_verified=0, verify_code_hash=NULL, verify_code_expiry=NULL, verify_attempts=0 WHERE student_id=?",

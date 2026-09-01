@@ -1505,8 +1505,12 @@ def student_verify_email():
             flash('No email address on your account. Ask an admin to add one.', 'error')
             return redirect(url_for('student_dashboard'))
         code = request.form.get('code', '').strip()
+        # Validate code is 6 digits
         if not code:
             flash('Enter the 6-digit code from your email.', 'error')
+            return redirect(url_for('student_verify_email'))
+        if not code.isdigit() or len(code) != 6:
+            flash('Code must be exactly 6 digits.', 'error')
             return redirect(url_for('student_verify_email'))
         if info['attempts'] >= VERIFY_MAX_ATTEMPTS:
             flash('Too many incorrect attempts. Request a new code to try again.', 'error')
@@ -1532,7 +1536,10 @@ def student_verify_email():
         else:
             flash(f'Incorrect code. {remaining} attempt(s) remaining.', 'error')
         return redirect(url_for('student_verify_email'))
-    return render_template('student_verify_email.html', info=info)
+    return render_template('student_verify_email.html', 
+                         info=info, 
+                         verify_code_ttl_minutes=VERIFY_CODE_TTL_MINUTES,
+                         max_verify_attempts=VERIFY_MAX_ATTEMPTS)
 
 
 @app.route('/student/send_verification_code', methods=['POST'])
@@ -1638,8 +1645,9 @@ def admin_edit_student():
         elif email and not validate_email(email):
             flash('Invalid email format', 'error')
         elif update_student(student_id, name, class_code, email):
+            # If email changed, reset verification status
             if previous and (previous.get('email') or '') != email:
-                update_student_email(student_id, email)
+                reset_email_verification(student_id)
             flash('Student updated', 'success')
         else:
             flash('Unable to update student', 'error')

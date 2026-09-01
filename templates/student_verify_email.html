@@ -1,0 +1,85 @@
+{% extends 'base.html' %}
+
+{% block title %}Verify Email Address{% endblock %}
+
+{% block content %}
+<div class="container mt-5">
+    <div class="row justify-content-center">
+        <div class="col-md-6">
+            <div class="card">
+                <div class="card-header bg-primary text-white">
+                    <h4 class="mb-0">Verify Your Email Address</h4>
+                </div>
+                <div class="card-body">
+                    {% if info.email_verified %}
+                        <div class="alert alert-success">
+                            ✓ Your email address is already verified!
+                        </div>
+                        <a href="{{ url_for('student_dashboard') }}" class="btn btn-primary">Back to Dashboard</a>
+                    {% else %}
+                        <p class="text-muted mb-3">
+                            {% if info.email %}
+                                A verification code has been sent to <strong>{{ info.email }}</strong>
+                            {% else %}
+                                You need to add an email address to your account first. Please contact an administrator.
+                            {% endif %}
+                        </p>
+
+                        {% if info.email %}
+                            <form method="POST" action="{{ url_for('student_verify_email') }}">
+                                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>
+                                
+                                <div class="form-group mb-3">
+                                    <label for="code">Enter 6-Digit Code:</label>
+                                    <input type="text" 
+                                           class="form-control form-control-lg text-center" 
+                                           id="code" 
+                                           name="code" 
+                                           placeholder="000000" 
+                                           maxlength="6" 
+                                           pattern="[0-9]{6}" 
+                                           inputmode="numeric"
+                                           required>
+                                    <small class="text-muted d-block mt-2">
+                                        Code expires in {{ verify_code_ttl_minutes | default('30') }} minutes
+                                    </small>
+                                </div>
+
+                                <button type="submit" class="btn btn-primary w-100 mb-2">Verify Code</button>
+                            </form>
+
+                            <hr>
+
+                            <p class="text-center mb-0">
+                                <small class="text-muted">Didn't receive the code?</small>
+                            </p>
+                            <form method="POST" action="{{ url_for('student_send_verification_code') }}" class="mt-2">
+                                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>
+                                <button type="submit" class="btn btn-outline-primary w-100">Send Code Again</button>
+                            </form>
+
+                            {% if info.attempts > 0 %}
+                                <div class="alert alert-warning mt-3 mb-0">
+                                    <small>Attempts remaining: {{ max_verify_attempts - info.attempts }}</small>
+                                </div>
+                            {% endif %}
+                        {% else %}
+                            <div class="alert alert-warning">
+                                No email address on file. Contact an administrator to add one to your account.
+                            </div>
+                        {% endif %}
+                    {% endif %}
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<style>
+.form-control-lg {
+    font-size: 1.5rem;
+    letter-spacing: 0.2rem;
+    text-transform: uppercase;
+}
+</style>
+{% endblock %}
